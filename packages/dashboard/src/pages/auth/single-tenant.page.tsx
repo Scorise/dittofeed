@@ -5,6 +5,7 @@ import backendConfig, { DEFAULT_BACKEND_CONFIG } from "backend-lib/src/config";
 import { SESSION_KEY } from "backend-lib/src/requestContext";
 import { UNAUTHORIZED_PAGE } from "isomorphic-lib/src/constants";
 import { GetServerSideProps, NextPage } from "next";
+import Head from "next/head";
 import { useRouter } from "next/router";
 import React from "react";
 
@@ -122,13 +123,17 @@ const SingleTenantAuth: NextPage<SingleTenantAuthProps> =
     };
 
     return (
-      <Stack
-        sx={{ width: "100%", height: "100vh" }}
-        alignItems="center"
-        justifyContent="center"
-        direction="column"
-        spacing={1}
-      >
+      <>
+        <Head>
+          <title>Scorise - Login</title>
+        </Head>
+        <Stack
+          sx={{ width: "100%", height: "100vh" }}
+          alignItems="center"
+          justifyContent="center"
+          direction="column"
+          spacing={1}
+        >
         <NavCard />
         <Stack direction="row" spacing={1} p={3}>
           <TextField
@@ -176,7 +181,8 @@ const SingleTenantAuth: NextPage<SingleTenantAuthProps> =
             ))}
           </Stack>
         )}
-      </Stack>
+        </Stack>
+      </>
     );
   };
 
