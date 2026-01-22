@@ -17,10 +17,11 @@ x-backend-app-env: &backend-app-env
   SECRET_KEY: ${SECRET_KEY:-GEGL1RHjFVOxIO80Dp8+ODlZPOjm2IDBJB/UunHlf3c=}
   PASSWORD: ${PASSWORD:-password}
   DASHBOARD_API_BASE: ${DASHBOARD_API_BASE:-http://localhost:3000}
+  API_HOST: ${API_HOST:-0.0.0.0}
 services:
   lite:
     image: ${IMAGE_REPOSITORY:-dittofeed/dittofeed-lite}:${IMAGE_TAG:-v0.22.0}
-    restart: always
+    restart: unless-stopped
     command: node --max-old-space-size=${LITE_MEM_LIMIT:-824} ./packages/lite/dist/scripts/startLite.js --workspace-name=${WORKSPACE_NAME:-Default}
     logging:
       driver: "local"
@@ -28,8 +29,6 @@ services:
       resources:
         limits:
           memory: ${LITE_CONTAINER_MEM_LIMIT:-1024}m
-    ports:
-      - "3000:3000"
     depends_on:
       - postgres
       - temporal
@@ -37,10 +36,35 @@ services:
     environment:
       <<: *backend-app-env
       # comment out after initial setup
-      BOOTSTRAP: "true"
+      # BOOTSTRAP: "true"
     # README: To add local env variables uncomment the following line and add a .env file in the root directory
     env_file:
       - .env
+    networks:
+      - dittofeed-network-lite
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8182:80"
+    volumes:
+      - ./nginx/nginx-no-ssl.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+      - ./nginx/acme-challenge:/var/www/html/.well-known/acme-challenge:ro
+    depends_on:
+      - lite
+    networks:
+      - dittofeed-network-lite
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./nginx/ssl:/etc/letsencrypt
+      - ./nginx/acme-challenge:/var/www/html/.well-known/acme-challenge
+      - certbot_logs:/var/log/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     networks:
       - dittofeed-network-lite
   # useful for upgrading dittofeed
@@ -65,7 +89,7 @@ services:
       - dittofeed-network-lite
   temporal:
     container_name: temporal
-    restart: always
+    restart: unless-stopped
     logging:
       driver: "local"
     depends_on:
@@ -92,7 +116,7 @@ services:
   temporal-ui:
     profiles: ["temporal-ui"]
     container_name: temporal-ui
-    restart: always
+    restart: unless-stopped
     logging:
       driver: "local"
     depends_on:
@@ -107,7 +131,7 @@ services:
       - 8080:8080
   postgres:
     image: postgres:${POSTGRES_VERSION:-15}
-    restart: always
+    restart: unless-stopped
     logging:
       driver: "local"
     environment:
@@ -122,7 +146,7 @@ services:
       - dittofeed-network-lite
   clickhouse-server:
     image: clickhouse/clickhouse-server:24.12.6.70-alpine
-    restart: always
+    restart: unless-stopped
     logging:
       driver: "local"
     deploy:
@@ -160,6 +184,9 @@ volumes:
   clickhouse_lib:
   clickhouse_log:
   blob-storage:
+  nginx_cache:
+  nginx_logs:
+  certbot_logs:
 
 networks:
   dittofeed-network-lite:

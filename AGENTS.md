@@ -1,5 +1,15 @@
 # Agents
 
+## Context Setup
+
+When working on this Dittofeed project, load the Dittofeed documentation context from Context7 at the start of each session:
+
+```
+Use context7-query-docs with libraryId: /dittofeed/dittofeed
+```
+
+This provides access to Dittofeed documentation, code examples, and API references.
+
 ## Commands
 
 The following are useful commands for the agents:
