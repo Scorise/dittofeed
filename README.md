@@ -9,13 +9,13 @@
 
 ---
 
-<h2 align="center">Open-source customer engagement</h3>
+<h2 align="center">Customer Engagement Platform</h3>
 
 <p align="center">
-  <a href="https://app.dittofeed.com/dashboard">Start Cloud Trial</a> | <a href="https://docs.dittofeed.com/introduction">Docs</a> | <a href="https://discord.gg/HajPkCG4Mm">Discord</a> | <a href="https://docs.dittofeed.com/contributing/running-locally">Contributing</a>
+  <a href="https://app.scorise.com/dashboard">Start Cloud Trial</a> | <a href="https://docs.scorise.com/introduction">Docs</a> | <a href="https://discord.gg/scorise">Discord</a> | <a href="https://docs.scorise.com/contributing/running-locally">Contributing</a>
 </p>
 
-[Dittofeed](https://dittofeed.com) is an omni-channel customer engagement platform. Send broadcasts or create automated user journeys to message users along any channel: email, mobile push notifications, SMS, WhatsApp, Slack, and more. We're an open source, dev-friendly alternative to platforms like OneSignal, Customer.io, and Segment Engage.
+[Scorise](https://scorise.com) is an omni-channel customer engagement platform. Send broadcasts or create automated user journeys to message users along any channel: email, mobile push notifications, SMS, WhatsApp, Slack, and more. We're a powerful, dev-friendly alternative to platforms like OneSignal, Customer.io, and Segment Engage.
 
 - 1️⃣ Connect user data via Segment, Reverse ETL, or the Dittofeed API ⛓️
 - 2️⃣ Create highly customizable user segments with multiple operators 🧍🏽‍♀️🧍🏻‍♂️🧍🏾

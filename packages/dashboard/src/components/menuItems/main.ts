@@ -130,7 +130,7 @@ const menuItems: { items: MenuItemGroup[] } = {
           id: "documentation",
           title: "Documentation",
           type: "item",
-          url: "https://docs.dittofeed.com",
+          url: "https://docs.scorise.com",
           icon: MenuBookOutlined,
           external: true,
           description:

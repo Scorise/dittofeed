@@ -20,7 +20,7 @@ x-backend-app-env: &backend-app-env
   API_HOST: ${API_HOST:-0.0.0.0}
 services:
   lite:
-    image: ${IMAGE_REPOSITORY:-dittofeed/dittofeed-lite}:${IMAGE_TAG:-v0.23.0}
+    image: ${IMAGE_REPOSITORY:-scorise/scorise-lite}:${IMAGE_TAG:-v0.23.0}
     restart: unless-stopped
     command: node --max-old-space-size=${LITE_MEM_LIMIT:-824} ./packages/lite/dist/scripts/startLite.js --workspace-name=${WORKSPACE_NAME:-Default}
     logging:

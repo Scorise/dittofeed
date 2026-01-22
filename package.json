@@ -1,9 +1,9 @@
 {
-  "name": "dittofeed",
+  "name": "scorise",
   "version": "0.0.3",
-  "description": "Developer first, open source customer engagement platform.",
+  "description": "Customer engagement platform for modern businesses.",
   "repository": "git@github.com:ideamarketinc/marketing-automation.git",
-  "author": "Max Gurewitz <max@dittofeed.com>, Chandler Craig <chandler@dittofeed.com>",
+  "author": "Scorise Team <team@scorise.com>",
   "private": true,
   "workspaces": [
     "packages/*"
