@@ -97,6 +97,15 @@ export {
   type WaitForUiNodeProps,
 };
 
+// Resource types for ResourceSelect component
+export enum ResourceType {
+  Segment = "Segment",
+  SubscriptionGroup = "SubscriptionGroup",
+  MessageTemplate = "MessageTemplate",
+  Journey = "Journey",
+  UserProperty = "UserProperty",
+}
+
 export type PropsWithInitialState<T = object> = {
   serverInitialState: PreloadedState;
 } & T;
@@ -166,6 +175,7 @@ export type AppState = {
   sourceControlProvider?: SourceControlProviderEnum;
   viewDraft: boolean;
   inTransition?: boolean;
+  commandPaletteOpen: boolean;
 } & PageStoreContents &
   Pick<
     Config,
@@ -217,6 +227,7 @@ export interface AppActions {
     defaultSmsProvider: DefaultSmsProviderResource,
   ) => void;
   setViewDraft: (viewDraft: boolean) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
   upsertAdminApiKey: (apiKey: AdminApiKeyResource) => void;
   deleteAdminApiKey: (id: string) => void;
   patchSecretAvailability: (secret: {

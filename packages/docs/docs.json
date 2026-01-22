@@ -192,6 +192,7 @@
               "guide/roadmap",
               "guide/faq",
               "guide/creating-journeys",
+              "guide/custom-recipient-properties",
               {
                 "group": "Sample Journeys",
                 "pages": [
@@ -201,6 +202,8 @@
               "guide/accessing-admin-api",
               "guide/submitting-broadcasts-api",
               "guide/mailing-list",
+              "guide/view-in-browser",
+              "guide/custom-subscription-page",
               "guide/git-workflows",
               "guide/license"
             ]
@@ -261,7 +264,13 @@
               "api-reference/auto/settings/put-apiadminsettingssms-providers",
               "api-reference/auto/segments/post-apiadminsegmentsmanual-segmentupdate",
               "api-reference/auto/segments/post-apiadminsegmentsmanual-segmentclear",
-              "api-reference/auto/segments/get-apiadminsegmentsmanual-segmentstatus"
+              "api-reference/auto/segments/get-apiadminsegmentsmanual-segmentstatus",
+              "api-reference/auto/analysis/get-apiadminanalysischart-data",
+              "api-reference/auto/analysis/get-apiadminanalysissummary",
+              "api-reference/auto/analysis/get-apiadminanalysisjourney-stats",
+              "api-reference/auto/componentconfigurations/get-apiadmincomponent-configurations",
+              "api-reference/auto/componentconfigurations/put-apiadmincomponent-configurations",
+              "api-reference/auto/componentconfigurations/delete-apiadmincomponent-configurations"
             ]
           }
         ]

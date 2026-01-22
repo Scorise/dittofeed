@@ -350,6 +350,7 @@ function TraitUserPropertyDefinitionEditor({
         current.type === UserPropertyDefinitionType.Group &&
         definition.id
       ) {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         traitDefinition = current.nodes.find(
           (n) => n.id === definition.id,
         ) as TraitUserPropertyDefinition;
@@ -621,6 +622,7 @@ function PerformedUserPropertyDefinitionEditor({
         current.type === UserPropertyDefinitionType.Group &&
         definition.id
       ) {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         d = current.nodes.find(
           (n) => n.id === definition.id,
         ) as PerformedUserPropertyDefinition;
@@ -1237,7 +1239,9 @@ export default function NewUserProperty() {
 
   return (
     <>
-      <DashboardContent>{body}</DashboardContent>
+      <DashboardContent>
+        <Stack sx={{ width: "100%", height: "100%" }}>{body}</Stack>
+      </DashboardContent>
       <Snackbar
         open={snackbarOpen}
         autoHideDuration={6000}

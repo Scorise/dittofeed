@@ -20,7 +20,7 @@ x-backend-app-env: &backend-app-env
   API_HOST: ${API_HOST:-0.0.0.0}
 services:
   lite:
-    image: ${IMAGE_REPOSITORY:-dittofeed/dittofeed-lite}:${IMAGE_TAG:-v0.22.0}
+    image: ${IMAGE_REPOSITORY:-dittofeed/dittofeed-lite}:${IMAGE_TAG:-v0.23.0}
     restart: unless-stopped
     command: node --max-old-space-size=${LITE_MEM_LIMIT:-824} ./packages/lite/dist/scripts/startLite.js --workspace-name=${WORKSPACE_NAME:-Default}
     logging:
@@ -36,40 +36,15 @@ services:
     environment:
       <<: *backend-app-env
       # comment out after initial setup
-      # BOOTSTRAP: "true"
+      BOOTSTRAP: "true"
     # README: To add local env variables uncomment the following line and add a .env file in the root directory
-    env_file:
-      - .env
-    networks:
-      - dittofeed-network-lite
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
-    ports:
-      - "8182:80"
-    volumes:
-      - ./nginx/nginx-no-ssl.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - nginx_cache:/var/cache/nginx
-      - nginx_logs:/var/log/nginx
-      - ./nginx/acme-challenge:/var/www/html/.well-known/acme-challenge:ro
-    depends_on:
-      - lite
-    networks:
-      - dittofeed-network-lite
-  certbot:
-    image: certbot/certbot
-    restart: unless-stopped
-    volumes:
-      - ./nginx/ssl:/etc/letsencrypt
-      - ./nginx/acme-challenge:/var/www/html/.well-known/acme-challenge
-      - certbot_logs:/var/log/letsencrypt
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    # env_file:
+    #   - .env
     networks:
       - dittofeed-network-lite
   # useful for upgrading dittofeed
   admin-cli:
-    image: dittofeed/dittofeed-admin-cli:${IMAGE_TAG:-v0.22.0}
+    image: dittofeed/dittofeed-admin-cli:${IMAGE_TAG:-v0.23.0}
     entrypoint: []
     profiles: ["admin-cli"]
     command: tail -f /dev/null
@@ -83,13 +58,13 @@ services:
     environment:
       <<: *backend-app-env
     # README: To add local env variables uncomment the following line and add a .env file in the root directory
-    env_file:
-      - .env
+    # env_file:
+    #   - .env
     networks:
       - dittofeed-network-lite
   temporal:
     container_name: temporal
-    restart: unless-stopped
+    restart: always
     logging:
       driver: "local"
     depends_on:
@@ -102,8 +77,8 @@ services:
       - POSTGRES_SEEDS=${DATABASE_HOST:-postgres}
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/prod.yaml
     # README: To add local env variables uncomment the following line and add a .env file in the root directory
-    env_file:
-      - .env
+    # env_file:
+    #   - .env
     image: temporalio/auto-setup:${TEMPORAL_VERSION:-1.22.4}
     labels:
       kompose.volume.type: configMap
@@ -116,7 +91,7 @@ services:
   temporal-ui:
     profiles: ["temporal-ui"]
     container_name: temporal-ui
-    restart: unless-stopped
+    restart: always
     logging:
       driver: "local"
     depends_on:
@@ -131,7 +106,7 @@ services:
       - 8080:8080
   postgres:
     image: postgres:${POSTGRES_VERSION:-15}
-    restart: unless-stopped
+    restart: always
     logging:
       driver: "local"
     environment:
@@ -146,7 +121,7 @@ services:
       - dittofeed-network-lite
   clickhouse-server:
     image: clickhouse/clickhouse-server:24.12.6.70-alpine
-    restart: unless-stopped
+    restart: always
     logging:
       driver: "local"
     deploy:
@@ -184,9 +159,6 @@ volumes:
   clickhouse_lib:
   clickhouse_log:
   blob-storage:
-  nginx_cache:
-  nginx_logs:
-  certbot_logs:
 
 networks:
   dittofeed-network-lite:

@@ -35,6 +35,7 @@ import {
   secret as dbSecret,
   smsProvider as dbSmsProvider,
   subscriptionGroup as dbSubscriptionGroup,
+  userProperty as dbUserProperty,
   workspace as dbWorkspace,
 } from "./db/schema";
 import {
@@ -63,7 +64,9 @@ import {
   sendGmailEmail,
   SendGmailEmailParams,
 } from "./gmail";
+import config from "./config";
 import { renderLiquid } from "./liquid";
+import { storeEmailForViewInBrowser } from "./viewInBrowser";
 import logger from "./logger";
 import {
   constructUnsubscribeHeaders,
@@ -72,7 +75,7 @@ import {
 import { withSpan } from "./openTelemetry";
 import {
   getSubscriptionGroupDetails,
-  getSubscriptionGroupWithAssignments,
+  getSubscriptionGroupsWithAssignments,
   inSubscriptionGroup,
   SubscriptionGroupDetails,
 } from "./subscriptionGroups";
@@ -232,6 +235,33 @@ export async function upsertMessageTemplate(
       message: "Invalid message template id, must be a valid v4 UUID",
     });
   }
+
+  // Validate identifierKey if specified for Email/SMS templates only
+  // Webhook templates already had identifierKey support and use built-in properties like "id"
+  const definitionToValidate = data.definition ?? data.draft;
+  if (
+    definitionToValidate &&
+    (definitionToValidate.type === ChannelType.Email ||
+      definitionToValidate.type === ChannelType.Sms) &&
+    "identifierKey" in definitionToValidate &&
+    definitionToValidate.identifierKey
+  ) {
+    const { identifierKey } = definitionToValidate;
+    const userPropertyExists = await db().query.userProperty.findFirst({
+      where: and(
+        eq(dbUserProperty.workspaceId, data.workspaceId),
+        eq(dbUserProperty.name, identifierKey),
+      ),
+    });
+    if (!userPropertyExists) {
+      return err({
+        type: UpsertMessageTemplateValidationErrorType.InvalidIdentifierKey,
+        message: `User property "${identifierKey}" does not exist in the workspace`,
+        identifierKey,
+      });
+    }
+  }
+
   const txResult: Result<MessageTemplate, TxQueryError> =
     await db().transaction(async (tx) => {
       const findFirstConditions: SQL[] = [
@@ -820,26 +850,34 @@ export async function sendEmail({
   SendMessageParametersEmail,
   "channel"
 >): Promise<BackendMessageSendResult> {
-  const [getSendModelsResult, emailProviderResult] = await Promise.all([
-    getSendMessageModels({
-      workspaceId,
-      templateId,
-      channel: ChannelType.Email,
-      useDraft,
-      subscriptionGroupDetails,
-    }),
-    getEmailProvider({
-      workspaceId,
-      providerOverride,
-      workspaceOccupantId: messageTags?.workspaceOccupantId,
-      workspaceOccupantType: messageTags?.workspaceOccupantType,
-    }),
-  ]);
+  const [getSendModelsResult, emailProviderResult, viewInBrowserSecretRecord] =
+    await Promise.all([
+      getSendMessageModels({
+        workspaceId,
+        templateId,
+        channel: ChannelType.Email,
+        useDraft,
+        subscriptionGroupDetails,
+      }),
+      getEmailProvider({
+        workspaceId,
+        providerOverride,
+        workspaceOccupantId: messageTags?.workspaceOccupantId,
+        workspaceOccupantType: messageTags?.workspaceOccupantType,
+      }),
+      db().query.secret.findFirst({
+        where: and(
+          eq(dbSecret.workspaceId, workspaceId),
+          eq(dbSecret.name, SecretNames.ViewInBrowser),
+        ),
+      }),
+    ]);
   if (getSendModelsResult.isErr()) {
     return err(getSendModelsResult.error);
   }
   const { messageTemplateDefinition, subscriptionGroupSecret } =
     getSendModelsResult.value;
+  const viewInBrowserSecret = viewInBrowserSecretRecord?.value;
 
   if (messageTemplateDefinition.type !== ChannelType.Email) {
     return err({
@@ -850,7 +888,9 @@ export async function sendEmail({
       },
     });
   }
-  const identifierKey = CHANNEL_IDENTIFIERS[ChannelType.Email];
+  const identifierKey =
+    messageTemplateDefinition.identifierKey ??
+    CHANNEL_IDENTIFIERS[ChannelType.Email];
   let emailBody: string;
   if (
     messageTemplateDefinition.emailContentsType === EmailContentsType.LowCode
@@ -863,6 +903,14 @@ export async function sendEmail({
   } else {
     emailBody = messageTemplateDefinition.body;
   }
+  const secrets: Record<string, string> = {};
+  if (subscriptionGroupSecret) {
+    secrets[SecretNames.Subscription] = subscriptionGroupSecret;
+  }
+  if (viewInBrowserSecret) {
+    secrets[SecretNames.ViewInBrowser] = viewInBrowserSecret;
+  }
+
   const renderedValuesResult = renderValues({
     userProperties: userPropertyAssignments,
     identifierKey,
@@ -870,6 +918,7 @@ export async function sendEmail({
     workspaceId,
     tags: messageTags,
     isPreview,
+    messageId: messageTags?.messageId,
     templates: {
       from: {
         contents: messageTemplateDefinition.from,
@@ -894,11 +943,7 @@ export async function sendEmail({
         contents: messageTemplateDefinition.bcc,
       },
     },
-    secrets: subscriptionGroupSecret
-      ? {
-          [SecretNames.Subscription]: subscriptionGroupSecret,
-        }
-      : undefined,
+    secrets: Object.keys(secrets).length > 0 ? secrets : undefined,
   });
 
   if (renderedValuesResult.isErr()) {
@@ -942,6 +987,25 @@ export async function sendEmail({
     return trimmed.length ? trimmed : [];
   });
   const to = identifier;
+
+  // Store email for view-in-browser feature if enabled and messageId is available
+  if (config().enableBlobStorage && messageTags?.messageId) {
+    const storeResult = await storeEmailForViewInBrowser({
+      workspaceId,
+      messageId: messageTags.messageId,
+      body,
+    });
+    if (storeResult.isErr()) {
+      logger().warn(
+        {
+          workspaceId,
+          messageId: messageTags.messageId,
+          err: storeResult.error,
+        },
+        "Failed to store email for view-in-browser",
+      );
+    }
+  }
 
   let customHeaders: Record<string, string> | undefined;
   if (messageTemplateDefinition.headers) {
@@ -988,6 +1052,7 @@ export async function sendEmail({
           to,
           from,
           userId,
+          identifierKey,
           subscriptionGroupSecret,
           subscriptionGroupName: subscriptionGroupDetails.name,
           workspaceId,
@@ -1295,6 +1360,7 @@ export async function sendEmail({
           accessKeyId: emailProvider.accessKeyId,
           secretAccessKey: emailProvider.secretAccessKey,
           region: emailProvider.region,
+          endpoint: emailProvider.endpoint,
         },
       });
 
@@ -1525,6 +1591,7 @@ export async function sendEmail({
               }))
             : undefined,
         Metadata: metadata,
+        MessageStream: emailProvider.messageStream,
       };
 
       if (!emailProvider.apiKey) {
@@ -1779,7 +1846,9 @@ export async function sendSms(
       },
     });
   }
-  const identifierKey = CHANNEL_IDENTIFIERS[ChannelType.Sms];
+  const identifierKey =
+    messageTemplateDefinition.identifierKey ??
+    CHANNEL_IDENTIFIERS[ChannelType.Sms];
 
   const renderedValuesResult = renderValues({
     userProperties: userPropertyAssignments,
@@ -2475,8 +2544,9 @@ export async function batchMessageUsers(
   // Get subscription group details and user property assignments for all users in parallel
   const [subscriptionGroupData, usersResult] = await Promise.all([
     subscriptionGroupId
-      ? getSubscriptionGroupWithAssignments({
-          subscriptionGroupId,
+      ? getSubscriptionGroupsWithAssignments({
+          workspaceId,
+          subscriptionGroupIds: [subscriptionGroupId],
           userIds,
         })
       : Promise.resolve([]),

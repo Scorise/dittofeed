@@ -23,7 +23,10 @@ import { Updater, useImmer } from "use-immer";
 import { usePropertiesQuery } from "../../lib/usePropertiesQuery";
 import { useResourcesQuery } from "../../lib/useResourcesQuery";
 import { greyTextFieldStyles } from "../greyScaleStyles";
-import { sharedFilterChipSx } from "../shared/filterStyles";
+import {
+  HardcodedFilterChip,
+  sharedFilterChipSx,
+} from "../shared/filterStyles";
 import { SquarePaper } from "../squarePaper";
 
 export interface BaseUserEventsFilterCommand {
@@ -248,6 +251,7 @@ export function SelectedUserEventsFilters({
             label={fullLabel}
             onDelete={() =>
               setState((draft) => {
+                // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
                 draft.filters.delete(key as Key);
               })
             }
@@ -266,33 +270,22 @@ export function SelectedUserEventsFilters({
           if (Array.isArray(value)) {
             // Resolve IDs to names for array values
             const resolvedValues = value.map((id) =>
+              // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
               resolveIdToName(key as Key, id),
             );
             label = resolvedValues.join(" OR ");
           } else {
             // Resolve ID to name for single values
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
             label = resolveIdToName(key as Key, String(value));
           }
           const fullLabel = `${key} = ${label}`;
           return (
-            <Tooltip
+            <HardcodedFilterChip
               key={`hardcoded-${key}`}
-              title={fullLabel}
-              placement="bottom-start"
-            >
-              <Chip
-                sx={{
-                  ...sharedFilterChipSx,
-                  ...sx,
-                  opacity: 0.7,
-                  "& .MuiChip-deleteIcon": {
-                    display: "none",
-                  },
-                }}
-                label={fullLabel}
-                disabled
-              />
-            </Tooltip>
+              label={fullLabel}
+              chipProps={{ sx }}
+            />
           );
         })
     : [];
@@ -665,6 +658,7 @@ export function NewUserEventsFilterButton({
           />
         )}
         renderOption={(props, option) => {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           const propsWithKey = props as HTMLAttributes<HTMLLIElement> & {
             key: string;
           };

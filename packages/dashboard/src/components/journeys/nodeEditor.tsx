@@ -21,7 +21,10 @@ import {
 import { SelectInputProps } from "@mui/material/Select/SelectInput";
 import { MultiSectionDigitalClock } from "@mui/x-date-pickers/MultiSectionDigitalClock";
 import { Node } from "@xyflow/react";
-import { DAY_INDICES } from "isomorphic-lib/src/constants";
+import {
+  DAY_INDICES,
+  DEFAULT_USER_PROPERTY_DELAY_OFFSET_DIRECTION,
+} from "isomorphic-lib/src/constants";
 import { getDefaultSubscriptionGroup } from "isomorphic-lib/src/subscriptionGroups";
 import { assertUnreachable } from "isomorphic-lib/src/typeAssertions";
 import {
@@ -32,7 +35,6 @@ import {
   EntryNode,
   JourneyNodeType,
   JourneyUiNodeType,
-  MessageTemplateResource,
   MobilePushProviderType,
   PartialSegmentResource,
   SavedSegmentResource,
@@ -40,7 +42,6 @@ import {
   SignalWireSenderOverrideType,
   SmsProviderType,
   TwilioSenderOverrideType,
-  UserPropertyResource,
   WorkspaceWideEmailProviders,
 } from "isomorphic-lib/src/types";
 import { ReactNode, useCallback, useMemo } from "react";
@@ -53,13 +54,12 @@ import {
   JourneyUiNodeDefinitionProps,
   MessageUiNodeProps,
   RandomCohortUiNodeProps,
+  ResourceType,
   SegmentSplitUiNodeProps,
   WaitForUiNodeProps,
 } from "../../lib/types";
-import { useMessageTemplatesQuery } from "../../lib/useMessageTemplatesQuery";
 import { useSegmentsQuery } from "../../lib/useSegmentsQuery";
 import { useSubscriptionGroupsQuery } from "../../lib/useSubscriptionGroupsQuery";
-import { useUserPropertiesQuery } from "../../lib/useUserPropertiesQuery";
 import ChannelProviderAutocomplete from "../channelProviderAutocomplete";
 import DurationSelect from "../durationSelect";
 import {
@@ -68,7 +68,7 @@ import {
 } from "../eventsAutocomplete";
 import { SubtleHeader } from "../headers";
 import InfoTooltip from "../infoTooltip";
-import { SubscriptionGroupAutocompleteV2 } from "../subscriptionGroupAutocomplete";
+import ResourceSelect, { ResourceOption } from "../resourceSelect";
 import { TimezoneAutocomplete } from "../timezoneAutocomplete";
 import findJourneyNode from "./findJourneyNode";
 import journeyNodeLabel from "./journeyNodeLabel";
@@ -90,40 +90,26 @@ function SegmentSplitNodeFields({
   nodeProps: SegmentSplitUiNodeProps;
   disabled?: boolean;
 }) {
-  const { updateJourneyNodeData } = useAppStorePick(["updateJourneyNodeData"]);
-  const { data: segmentsData } = useSegmentsQuery({
-    resourceType: "Declarative",
-  });
-
-  const onSegmentChangeHandler = (
-    _event: unknown,
-    segment: PartialSegmentResource | null,
-  ) => {
-    updateJourneyNodeData(nodeId, (node) => {
-      const props = node.data.nodeTypeProps;
-      if (props.type === JourneyNodeType.SegmentSplitNode) {
-        props.segmentId = segment?.id;
-      }
-    });
-  };
-
-  if (!segmentsData) {
-    return null;
-  }
-
-  const segment =
-    segmentsData.segments.find((t) => t.id === nodeProps.segmentId) ?? null;
+  const { updateJourneyNodeData, journeyName } = useAppStorePick([
+    "updateJourneyNodeData",
+    "journeyName",
+  ]);
 
   return (
-    <Autocomplete
-      value={segment}
-      options={segmentsData.segments}
-      getOptionLabel={getLabel}
-      onChange={onSegmentChangeHandler}
+    <ResourceSelect
+      resourceType={ResourceType.Segment}
+      value={nodeProps.segmentId ?? null}
+      onChange={(resourceId) => {
+        updateJourneyNodeData(nodeId, (node) => {
+          const props = node.data.nodeTypeProps;
+          if (props.type === JourneyNodeType.SegmentSplitNode) {
+            props.segmentId = resourceId ?? undefined;
+          }
+        });
+      }}
       disabled={disabled}
-      renderInput={(params) => (
-        <TextField {...params} label="segment" variant="outlined" />
-      )}
+      label="Segment"
+      currentPageLabel={journeyName || "Journey"}
     />
   );
 }
@@ -371,6 +357,7 @@ function EntryNodeFields({
             if (props.type !== AdditionalJourneyNodeType.EntryUiNode) {
               return;
             }
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
             const type = e.target.value as EntryNode["type"];
             if (props.variant.type === type) {
               return;
@@ -404,10 +391,6 @@ function EntryNodeFields({
   );
 }
 
-function getTemplateLabel(tr: MessageTemplateResource) {
-  return tr.name;
-}
-
 function MessageNodeFields({
   nodeId,
   nodeProps,
@@ -417,14 +400,13 @@ function MessageNodeFields({
   nodeProps: MessageUiNodeProps;
   disabled?: boolean;
 }) {
-  const { enableMobilePush, updateJourneyNodeData } = useAppStorePick([
-    "enableMobilePush",
-    "updateJourneyNodeData",
-  ]);
+  const { enableMobilePush, updateJourneyNodeData, journeyName } =
+    useAppStorePick([
+      "enableMobilePush",
+      "updateJourneyNodeData",
+      "journeyName",
+    ]);
   const { data: subscriptionGroups } = useSubscriptionGroupsQuery();
-  const { data: messageTemplates } = useMessageTemplatesQuery({
-    resourceType: "Declarative",
-  });
 
   const onNameChangeHandler: React.ChangeEventHandler<
     HTMLTextAreaElement | HTMLInputElement
@@ -438,25 +420,19 @@ function MessageNodeFields({
   };
 
   const onTemplateChangeHandler = (
-    _event: unknown,
-    template: MessageTemplateResource | null,
+    _resourceId: string | null,
+    resource: ResourceOption | null,
   ) => {
     updateJourneyNodeData(nodeId, (node) => {
       const props = node.data.nodeTypeProps;
       if (props.type === JourneyNodeType.MessageNode) {
-        props.templateId = template?.id;
+        props.templateId = resource?.id;
         if (props.name.length === 0) {
-          props.name = template?.name ?? "";
+          props.name = resource?.name ?? "";
         }
       }
     });
   };
-
-  const templates = messageTemplates
-    ? messageTemplates.filter((t) => t.type === nodeProps.channel)
-    : [];
-
-  const template = templates.find((t) => t.id === nodeProps.templateId) ?? null;
 
   const onChannelChangeHandler: SelectInputProps<ChannelType>["onChange"] = (
     e,
@@ -464,6 +440,7 @@ function MessageNodeFields({
     updateJourneyNodeData(nodeId, (node) => {
       const props = node.data.nodeTypeProps;
       if (props.type === JourneyNodeType.MessageNode) {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         const channel = e.target.value as ChannelType;
         const defaultSubscriptionGroup = getDefaultSubscriptionGroup({
           channel,
@@ -483,16 +460,19 @@ function MessageNodeFields({
         switch (props.channel) {
           case ChannelType.Email:
             props.providerOverride =
+              // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
               (provider as WorkspaceWideEmailProviders | null) ?? undefined;
             break;
           case ChannelType.Sms:
             props.providerOverride =
+              // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
               (provider as SmsProviderType | null) ?? undefined;
             break;
           case ChannelType.Webhook:
             break;
           case ChannelType.MobilePush:
             props.providerOverride =
+              // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
               (provider as MobilePushProviderType | null) ?? undefined;
             break;
         }
@@ -586,6 +566,7 @@ function MessageNodeFields({
           if (!event.target.value) {
             props.senderOverride = undefined;
           } else {
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
             switch (event.target.value as TwilioSenderOverrideType) {
               case TwilioSenderOverrideType.MessageSid:
                 props.senderOverride = {
@@ -679,6 +660,7 @@ function MessageNodeFields({
           if (!event.target.value) {
             props.senderOverride = undefined;
           } else {
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
             switch (event.target.value as SignalWireSenderOverrideType) {
               case SignalWireSenderOverrideType.PhoneNumber:
                 props.senderOverride = {
@@ -736,28 +718,30 @@ function MessageNodeFields({
           </MenuItem>
         </Select>
       </FormControl>
-      <SubscriptionGroupAutocompleteV2
-        subscriptionGroupId={nodeProps.subscriptionGroupId}
-        channel={nodeProps.channel}
-        disabled={disabled}
-        handler={(subscriptionGroup) => {
+      <ResourceSelect
+        resourceType={ResourceType.SubscriptionGroup}
+        value={nodeProps.subscriptionGroupId ?? null}
+        onChange={(resourceId) => {
           updateJourneyNodeData(nodeId, (node) => {
             const props = node.data.nodeTypeProps;
             if (props.type === JourneyNodeType.MessageNode) {
-              props.subscriptionGroupId = subscriptionGroup?.id;
+              props.subscriptionGroupId = resourceId ?? undefined;
             }
           });
         }}
-      />
-      <Autocomplete
-        value={template}
-        options={templates}
+        channel={nodeProps.channel}
         disabled={disabled}
-        getOptionLabel={getTemplateLabel}
+        label="Subscription Group"
+        currentPageLabel={journeyName || "Journey"}
+      />
+      <ResourceSelect
+        resourceType={ResourceType.MessageTemplate}
+        value={nodeProps.templateId ?? null}
         onChange={onTemplateChangeHandler}
-        renderInput={(params) => (
-          <TextField {...params} label="Template" variant="outlined" />
-        )}
+        channel={nodeProps.channel}
+        disabled={disabled}
+        label="Template"
+        currentPageLabel={journeyName || "Journey"}
       />
       {nodeProps.templateId ? (
         <TextField
@@ -859,10 +843,10 @@ function DelayNodeFields({
   nodeProps: DelayUiNodeProps;
   disabled?: boolean;
 }) {
-  const { updateJourneyNodeData } = useAppStorePick(["updateJourneyNodeData"]);
-  const { data: userProperties } = useUserPropertiesQuery({
-    resourceType: "Declarative",
-  });
+  const { updateJourneyNodeData, journeyName } = useAppStorePick([
+    "updateJourneyNodeData",
+    "journeyName",
+  ]);
   let variant: React.ReactElement;
   const nodeVariant = nodeProps.variant;
   switch (nodeVariant.type) {
@@ -902,6 +886,7 @@ function DelayNodeFields({
         nodeVariant.allowedDaysOfWeek ?? DAY_INDICES,
       );
       const dayEls = DAYS.map((day, i) => {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         const index = i as AllowedDayIndices;
         return (
           <Tooltip key={day.day} title={day.day}>
@@ -990,37 +975,27 @@ function DelayNodeFields({
       break;
     }
     case DelayVariantType.UserProperty: {
-      const userProperty =
-        userProperties?.userProperties.find(
-          (p) => p.id === nodeVariant.userProperty,
-        ) ?? null;
-      const onUserPropertyChangeHandler = (
-        _event: unknown,
-        up: UserPropertyResource | null,
-      ) => {
-        updateJourneyNodeData(nodeId, (node) => {
-          if (
-            node.data.nodeTypeProps.type !== JourneyNodeType.DelayNode ||
-            node.data.nodeTypeProps.variant.type !==
-              DelayVariantType.UserProperty
-          ) {
-            return;
-          }
-          node.data.nodeTypeProps.variant.userProperty = up?.id ?? undefined;
-        });
-      };
-
       variant = (
         <>
-          <Autocomplete
-            value={userProperty}
-            options={userProperties?.userProperties ?? []}
-            getOptionLabel={getLabel}
-            onChange={onUserPropertyChangeHandler}
-            renderInput={(params) => (
-              <TextField {...params} label="User Property" variant="outlined" />
-            )}
+          <ResourceSelect
+            resourceType={ResourceType.UserProperty}
+            value={nodeVariant.userProperty ?? null}
+            onChange={(resourceId) => {
+              updateJourneyNodeData(nodeId, (node) => {
+                if (
+                  node.data.nodeTypeProps.type !== JourneyNodeType.DelayNode ||
+                  node.data.nodeTypeProps.variant.type !==
+                    DelayVariantType.UserProperty
+                ) {
+                  return;
+                }
+                node.data.nodeTypeProps.variant.userProperty =
+                  resourceId ?? undefined;
+              });
+            }}
             disabled={disabled}
+            label="User Property"
+            currentPageLabel={journeyName || "Journey"}
           />
           <FormControlLabel
             control={
@@ -1081,6 +1056,7 @@ function DelayNodeFields({
             if (props.type !== JourneyNodeType.DelayNode) {
               return;
             }
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
             const type = e.target.value as DelayVariantType;
             if (props.variant.type === type) {
               return;
@@ -1101,6 +1077,7 @@ function DelayNodeFields({
               case DelayVariantType.UserProperty:
                 props.variant = {
                   type: DelayVariantType.UserProperty,
+                  offsetDirection: DEFAULT_USER_PROPERTY_DELAY_OFFSET_DIRECTION,
                 };
                 break;
               default:

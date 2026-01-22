@@ -25,8 +25,11 @@ import settingsController from "../controllers/settingsController";
 import authController from "../controllers/singleTenantController";
 import subscriptionGroupsController from "../controllers/subscriptionGroupsController";
 import subscriptionManagementController from "../controllers/subscriptionManagementController";
+import subscriptionManagementTemplateController from "../controllers/subscriptionManagementTemplateController";
 import userPropertiesController from "../controllers/userPropertiesController";
+import userPropertyIndexController from "../controllers/userPropertyIndexController";
 import usersController from "../controllers/usersController";
+import viewInBrowserController from "../controllers/viewInBrowserController";
 import webhooksController from "../controllers/webhooksController";
 import { BuildAppOpts } from "../types";
 import adminAuth from "./adminAuth";
@@ -60,7 +63,13 @@ export default async function router(
         f.register(subscriptionGroupsController, {
           prefix: "/subscription-groups",
         }),
+        f.register(subscriptionManagementTemplateController, {
+          prefix: "/subscription-management-template",
+        }),
         f.register(userPropertiesController, { prefix: "/user-properties" }),
+        f.register(userPropertyIndexController, {
+          prefix: "/user-property-indices",
+        }),
         f.register(broadcastsController, {
           prefix: "/broadcasts",
         }),
@@ -93,6 +102,7 @@ export default async function router(
         }),
         f.register(publicAppsController, { prefix: "/apps" }),
         f.register(webhooksController, { prefix: "/webhooks" }),
+        f.register(viewInBrowserController, { prefix: "/view-in-browser" }),
         backendConfig().authMode === "single-tenant"
           ? f.register(authController, { prefix: "/single-tenant" })
           : null,

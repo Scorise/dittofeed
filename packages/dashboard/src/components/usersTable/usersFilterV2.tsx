@@ -4,51 +4,102 @@ import React from "react";
 import { useSegmentsQuery } from "../../lib/useSegmentResourcesQuery";
 import { useSubscriptionGroupsResourcesQuery } from "../../lib/useSubscriptionGroupsResourcesQuery";
 import { useUserPropertyResourcesQuery } from "../../lib/useUserPropertyResourcesQuery";
-import {
-  removeSegment,
-  removeSubscriptionGroup,
-  removeUserProperty,
-  UserFilterState,
-  UserFilterUpdater,
-} from "./userFiltersState";
 import { UsersFilterSelectorV2 } from "./usersFilterSelectorV2";
 
+export interface UsersFilterV2Props {
+  // State (read-only)
+  userProperties: Map<string, Set<string>>;
+  segments: Set<string>;
+  staticSegments: Set<string>;
+  negativeSegments: Set<string>;
+  staticNegativeSegments: Set<string>;
+  subscriptionGroups: Set<string>;
+  staticSubscriptionGroups: Set<string>;
+  negativeSubscriptionGroups: Set<string>;
+  staticNegativeSubscriptionGroups: Set<string>;
+
+  // Optional name overrides for internal segments (segment ID -> display name)
+  segmentNameOverride?: Record<string, string>;
+
+  // Actions
+  onRemoveSegment: (id: string) => void;
+  onRemoveNegativeSegment: (id: string) => void;
+  onRemoveSubscriptionGroup: (id: string) => void;
+  onRemoveNegativeSubscriptionGroup: (id: string) => void;
+  onRemoveUserProperty: (id: string) => void;
+  onAddSegment: (id: string) => void;
+  onAddSubscriptionGroup: (id: string) => void;
+  onAddUserProperty: (propertyId: string, value: string) => void;
+}
+
 export function UsersFilterV2({
-  state,
-  updater,
-}: {
-  state: UserFilterState;
-  updater: UserFilterUpdater;
-}) {
+  userProperties,
+  segments,
+  staticSegments,
+  negativeSegments,
+  staticNegativeSegments,
+  subscriptionGroups,
+  staticSubscriptionGroups,
+  negativeSubscriptionGroups,
+  staticNegativeSubscriptionGroups,
+  segmentNameOverride,
+  onRemoveSegment,
+  onRemoveNegativeSegment,
+  onRemoveSubscriptionGroup,
+  onRemoveNegativeSubscriptionGroup,
+  onRemoveUserProperty,
+  onAddSegment,
+  onAddSubscriptionGroup,
+  onAddUserProperty,
+}: UsersFilterV2Props) {
   const userPropertiesQuery = useUserPropertyResourcesQuery();
   const segmentsQuery = useSegmentsQuery();
   const subscriptionGroupsQuery = useSubscriptionGroupsResourcesQuery();
+
+  const segmentNames = React.useMemo(() => {
+    if (segmentsQuery.status !== "success") {
+      return new Map<string, string>();
+    }
+    const segmentsList = segmentsQuery.data.segments || [];
+    return segmentsList.reduce((acc: Map<string, string>, segment) => {
+      acc.set(segment.id, segment.name);
+      return acc;
+    }, new Map<string, string>());
+  }, [segmentsQuery]);
+
+  // Helper to get segment name, checking override first
+  const getSegmentName = React.useCallback(
+    (segmentId: string): string | undefined => {
+      return segmentNameOverride?.[segmentId] ?? segmentNames.get(segmentId);
+    },
+    [segmentNameOverride, segmentNames],
+  );
 
   const joinedFilterSegments: {
     id: string;
     name: string;
   }[] = React.useMemo(() => {
-    if (segmentsQuery.status !== "success") {
-      return [];
-    }
-
-    const segments = segmentsQuery.data.segments || [];
-    const segmentNames = segments.reduce(
-      (acc: Map<string, string>, segment) => {
-        acc.set(segment.id, segment.name);
-        return acc;
-      },
-      new Map<string, string>(),
-    );
-
-    return Array.from(state.segments).flatMap((id) => {
-      const name = segmentNames.get(id);
+    return Array.from(segments).flatMap((id) => {
+      const name = getSegmentName(id);
       if (!name) {
         return [];
       }
       return { id, name };
     });
-  }, [state.segments, segmentsQuery]);
+  }, [segments, getSegmentName]);
+
+  const joinedNegativeFilterSegments: {
+    id: string;
+    name: string;
+  }[] = React.useMemo(() => {
+    return Array.from(negativeSegments).flatMap((id) => {
+      const name = getSegmentName(id);
+      if (!name) {
+        return [];
+      }
+      return { id, name };
+    });
+  }, [negativeSegments, getSegmentName]);
 
   const joinedUserPropertyFilters: {
     id: string;
@@ -59,8 +110,8 @@ export function UsersFilterV2({
       return [];
     }
 
-    const userProperties = userPropertiesQuery.data.userProperties || [];
-    const userPropertyNames = userProperties.reduce(
+    const userPropertiesList = userPropertiesQuery.data.userProperties || [];
+    const userPropertyNames = userPropertiesList.reduce(
       (acc: Map<string, string>, up) => {
         acc.set(up.id, up.name);
         return acc;
@@ -68,41 +119,52 @@ export function UsersFilterV2({
       new Map<string, string>(),
     );
 
-    return Array.from(state.userProperties).flatMap(([id, values]) => {
+    return Array.from(userProperties).flatMap(([id, values]) => {
       const name = userPropertyNames.get(id);
       if (!name) {
         return [];
       }
       return { id, name, values: Array.from(values) };
     });
-  }, [state.userProperties, userPropertiesQuery]);
+  }, [userProperties, userPropertiesQuery]);
+
+  const subscriptionGroupNames = React.useMemo(() => {
+    if (subscriptionGroupsQuery.status !== "success") {
+      return new Map<string, string>();
+    }
+    const subscriptionGroupsList =
+      subscriptionGroupsQuery.data.subscriptionGroups || [];
+    return subscriptionGroupsList.reduce((acc: Map<string, string>, sg) => {
+      acc.set(sg.id, sg.name);
+      return acc;
+    }, new Map<string, string>());
+  }, [subscriptionGroupsQuery]);
 
   const joinedSubscriptionGroups: {
     id: string;
     name: string;
   }[] = React.useMemo(() => {
-    if (subscriptionGroupsQuery.status !== "success") {
-      return [];
-    }
-
-    const subscriptionGroups =
-      subscriptionGroupsQuery.data.subscriptionGroups || [];
-    const subscriptionGroupNames = subscriptionGroups.reduce(
-      (acc: Map<string, string>, sg) => {
-        acc.set(sg.id, sg.name);
-        return acc;
-      },
-      new Map<string, string>(),
-    );
-
-    return Array.from(state.subscriptionGroups).flatMap((id) => {
+    return Array.from(subscriptionGroups).flatMap((id) => {
       const name = subscriptionGroupNames.get(id);
       if (!name) {
         return [];
       }
       return { id, name };
     });
-  }, [state.subscriptionGroups, subscriptionGroupsQuery]);
+  }, [subscriptionGroups, subscriptionGroupNames]);
+
+  const joinedNegativeSubscriptionGroups: {
+    id: string;
+    name: string;
+  }[] = React.useMemo(() => {
+    return Array.from(negativeSubscriptionGroups).flatMap((id) => {
+      const name = subscriptionGroupNames.get(id);
+      if (!name) {
+        return [];
+      }
+      return { id, name };
+    });
+  }, [negativeSubscriptionGroups, subscriptionGroupNames]);
 
   const theme = useTheme();
 
@@ -133,28 +195,50 @@ export function UsersFilterV2({
           label={`${property.name} = ${property.values
             .map((value) => `"${value}"`)
             .join(" OR ")}`}
-          onDelete={() => removeUserProperty(updater, property.id)}
+          onDelete={() => onRemoveUserProperty(property.id)}
         />
       ))}
       {joinedFilterSegments.map((segment) => (
         <Chip
           key={segment.id}
           sx={chipSx}
-          disabled={state.staticSegments.has(segment.id)}
+          disabled={staticSegments.has(segment.id)}
           label={`User in ${segment.name}`}
-          onDelete={() => removeSegment(updater, segment.id)}
+          onDelete={() => onRemoveSegment(segment.id)}
+        />
+      ))}
+      {joinedNegativeFilterSegments.map((segment) => (
+        <Chip
+          key={`neg-${segment.id}`}
+          sx={chipSx}
+          disabled={staticNegativeSegments.has(segment.id)}
+          label={`User NOT in ${segment.name}`}
+          onDelete={() => onRemoveNegativeSegment(segment.id)}
         />
       ))}
       {joinedSubscriptionGroups.map((sg) => (
         <Chip
           key={sg.id}
           sx={chipSx}
-          disabled={state.staticSubscriptionGroups.has(sg.id)}
+          disabled={staticSubscriptionGroups.has(sg.id)}
           label={`User subscribed to ${sg.name}`}
-          onDelete={() => removeSubscriptionGroup(updater, sg.id)}
+          onDelete={() => onRemoveSubscriptionGroup(sg.id)}
         />
       ))}
-      <UsersFilterSelectorV2 state={state} updater={updater} />
+      {joinedNegativeSubscriptionGroups.map((sg) => (
+        <Chip
+          key={`neg-sg-${sg.id}`}
+          sx={chipSx}
+          disabled={staticNegativeSubscriptionGroups.has(sg.id)}
+          label={`User NOT subscribed to ${sg.name}`}
+          onDelete={() => onRemoveNegativeSubscriptionGroup(sg.id)}
+        />
+      ))}
+      <UsersFilterSelectorV2
+        onAddSegment={onAddSegment}
+        onAddSubscriptionGroup={onAddSubscriptionGroup}
+        onAddUserProperty={onAddUserProperty}
+      />
     </Stack>
   );
 }

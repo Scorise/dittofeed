@@ -238,6 +238,16 @@ function mapSegmentNodeToNewType(
         secondary: [],
       };
     }
+    case SegmentNodeType.SubscriptionGroupUnsubscribed: {
+      return {
+        primary: {
+          type: SegmentNodeType.SubscriptionGroupUnsubscribed,
+          id: node.id,
+          subscriptionGroupId: "",
+        },
+        secondary: [],
+      };
+    }
     case SegmentNodeType.Performed: {
       return {
         primary: {
@@ -574,7 +584,10 @@ const SEGMENT_OPTIONS: SegmentGroupedOption[] = [
 ];
 
 const keyedSegmentOptions: Record<
-  Exclude<SegmentNodeType, SegmentNodeType.Broadcast>,
+  Exclude<
+    SegmentNodeType,
+    SegmentNodeType.Broadcast | SegmentNodeType.SubscriptionGroupUnsubscribed
+  >,
   SegmentGroupedOption
 > = {
   [SegmentNodeType.Everyone]: everyoneOption,
@@ -919,6 +932,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
     ) => {
       updateEditableSegmentNodeData(setState, node.id, (n) => {
         if (n.type === SegmentNodeType.LastPerformed) {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           const newOperator = e.target.value as SegmentOperatorType;
           const existingProperty = n.hasProperties?.[i];
           if (!existingProperty) {
@@ -953,6 +967,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={property.operator.value}
@@ -983,6 +998,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={property.operator.value}
@@ -1015,6 +1031,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             InputProps={{
               type: "number",
@@ -1050,6 +1067,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             InputProps={{
               type: "number",
@@ -1087,12 +1105,17 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         }}
       >
         <PropertiesAutocomplete
+          disabled={disabled}
           event={node.event}
           property={property.path}
           onPropertyChange={handlePropertyPathChange}
           sx={{ width: selectorWidth }}
         />
-        <Select value={operator.id} onChange={handleOperatorChange}>
+        <Select
+          disabled={disabled}
+          value={operator.id}
+          onChange={handleOperatorChange}
+        >
           <MenuItem value={SegmentOperatorType.Equals}>
             {keyedOperatorOptions[SegmentOperatorType.Equals].label}
           </MenuItem>
@@ -1156,6 +1179,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
     ) => {
       updateEditableSegmentNodeData(setState, node.id, (n) => {
         if (n.type === SegmentNodeType.LastPerformed) {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           const newOperator = e.target.value as SegmentOperatorType;
           const existingProperty = n.whereProperties?.[i];
           if (!existingProperty) {
@@ -1190,6 +1214,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={property.operator.value}
@@ -1220,6 +1245,7 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={property.operator.value}
@@ -1254,12 +1280,17 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
         }}
       >
         <PropertiesAutocomplete
+          disabled={disabled}
           event={node.event}
           property={property.path}
           onPropertyChange={handlePropertyPathChange}
           sx={{ width: selectorWidth }}
         />
-        <Select value={operator.id} onChange={handleOperatorChange}>
+        <Select
+          disabled={disabled}
+          value={operator.id}
+          onChange={handleOperatorChange}
+        >
           <MenuItem value={SegmentOperatorType.Equals}>
             {keyedOperatorOptions[SegmentOperatorType.Equals].label}
           </MenuItem>
@@ -1290,15 +1321,24 @@ function LastPerformedSelect({ node }: { node: LastPerformedSegmentNode }) {
     <Stack direction="column" spacing={2}>
       <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <EventNamesAutocomplete
+          disabled={disabled}
           event={node.event}
           onEventChange={handleEventNameChange}
           sx={{ width: selectorWidth }}
         />
-        <Button variant="contained" onClick={handleAddWhereProperty}>
+        <Button
+          disabled={disabled}
+          variant="contained"
+          onClick={handleAddWhereProperty}
+        >
           Where Property
           <InfoTooltip title="Used to select which events are eligible to be considered." />
         </Button>
-        <Button variant="contained" onClick={handleAddHasProperty}>
+        <Button
+          disabled={disabled}
+          variant="contained"
+          onClick={handleAddHasProperty}
+        >
           Has Property
           <InfoTooltip title="A user is in the segment if the selected event has the propertties." />
         </Button>
@@ -1330,6 +1370,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
   const handleTimesOperatorChange: SelectProps["onChange"] = (e) => {
     updateEditableSegmentNodeData(setState, node.id, (n) => {
       if (n.type === SegmentNodeType.Performed) {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         n.timesOperator = e.target.value as RelationalOperators;
       }
     });
@@ -1407,6 +1448,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
     ) => {
       updateEditableSegmentNodeData(setState, node.id, (n) => {
         if (n.type === SegmentNodeType.Performed) {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           const newOperator = e.target.value as SegmentOperatorType;
           const existingProperty = n.properties?.[i];
           if (!existingProperty) {
@@ -1441,6 +1483,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={property.operator.value}
@@ -1473,6 +1516,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             InputProps={{
               type: "number",
@@ -1508,6 +1552,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             InputProps={{
               type: "number",
@@ -1541,12 +1586,17 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
         }}
       >
         <PropertiesAutocomplete
+          disabled={disabled}
           event={node.event}
           property={property.path}
           onPropertyChange={handlePropertyPathChange}
           sx={{ width: selectorWidth }}
         />
-        <Select value={operator.id} onChange={handleOperatorChange}>
+        <Select
+          disabled={disabled}
+          value={operator.id}
+          onChange={handleOperatorChange}
+        >
           <MenuItem value={SegmentOperatorType.Equals}>
             {keyedOperatorOptions[SegmentOperatorType.Equals].label}
           </MenuItem>
@@ -1579,6 +1629,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
         <SubtleHeader>Time Window</SubtleHeader>
         <Stack direction="row" spacing={1}>
           <DurationSelect
+            disabled={disabled}
             value={node.withinSeconds}
             inputLabel="Event Occurred Within The Last"
             onChange={(seconds) => {
@@ -1611,6 +1662,7 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
     <Stack direction="column" spacing={2}>
       <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <EventNamesAutocomplete
+          disabled={disabled}
           event={node.event}
           onEventChange={handleEventNameChange}
           sx={{ width: selectorWidth }}
@@ -1635,10 +1687,18 @@ function PerformedSelect({ node }: { node: PerformedSegmentNode }) {
           value={String(node.times ?? 1)}
           onChange={handleEventTimesChange}
         />
-        <Button variant="contained" onClick={() => handleAddProperty()}>
+        <Button
+          disabled={disabled}
+          variant="contained"
+          onClick={() => handleAddProperty()}
+        >
           Property
         </Button>
-        <Button variant="contained" onClick={() => handleAddTimeWindow()}>
+        <Button
+          disabled={disabled}
+          variant="contained"
+          onClick={() => handleAddTimeWindow()}
+        >
           Time Window
         </Button>
       </Stack>
@@ -1664,6 +1724,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
   const handleTimesOperatorChange: SelectProps["onChange"] = (e) => {
     updateEditableSegmentNodeData(setState, node.id, (n) => {
       if (n.type === SegmentNodeType.KeyedPerformed) {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         n.timesOperator = e.target.value as RelationalOperators;
       }
     });
@@ -1734,6 +1795,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
     ) => {
       updateEditableSegmentNodeData(setState, node.id, (n) => {
         if (n.type === SegmentNodeType.KeyedPerformed) {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           const newOperator = e.target
             .value as KeyedPerformedPropertiesOperator["type"];
           const existingProperty = n.properties?.[i];
@@ -1770,6 +1832,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={propertyOperator.value}
@@ -1800,6 +1863,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             onChange={handlePropertyValueChange}
             value={propertyOperator.value}
@@ -1832,6 +1896,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             InputProps={{
               type: "number",
@@ -1867,6 +1932,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
         };
         operatorEl = (
           <TextField
+            disabled={disabled}
             label="Property Value"
             InputProps={{
               type: "number",
@@ -1900,12 +1966,17 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
         }}
       >
         <PropertiesAutocomplete
+          disabled={disabled}
           event={node.event}
           property={property.path}
           onPropertyChange={handlePropertyPathChange}
           sx={{ width: selectorWidth }}
         />
-        <Select value={operator.id} onChange={handleOperatorChange}>
+        <Select
+          disabled={disabled}
+          value={operator.id}
+          onChange={handleOperatorChange}
+        >
           <MenuItem value={SegmentOperatorType.Equals}>
             {keyedOperatorOptions[SegmentOperatorType.Equals].label}
           </MenuItem>
@@ -1957,6 +2028,7 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
     <Stack direction="column" spacing={2}>
       <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
         <EventNamesAutocomplete
+          disabled={disabled}
           event={node.event}
           onEventChange={handleEventNameChange}
           sx={{ width: selectorWidth }}
@@ -1982,7 +2054,11 @@ function KeyedPerformedSelect({ node }: { node: KeyedPerformedSegmentNode }) {
           value={String(node.times ?? 1)}
           onChange={handleEventTimesChange}
         />
-        <Button variant="contained" onClick={() => handleAddProperty()}>
+        <Button
+          disabled={disabled}
+          variant="contained"
+          onClick={() => handleAddProperty()}
+        >
           Property
         </Button>
       </Stack>
@@ -2189,6 +2265,7 @@ function AbsoluteTimestampValueSelect({
         node.type === SegmentNodeType.Trait &&
         node.operator.type === SegmentOperatorType.AbsoluteTimestamp
       ) {
+        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
         node.operator.direction = e.target.value as CursorDirectionEnum;
       }
     });
@@ -2715,7 +2792,10 @@ function SegmentNodeComponent({
     [isRoot],
   );
 
-  if (node.type === SegmentNodeType.Broadcast) {
+  if (
+    node.type === SegmentNodeType.Broadcast ||
+    node.type === SegmentNodeType.SubscriptionGroupUnsubscribed
+  ) {
     throw new Error(`Unimplemented node type ${node.type}`);
   }
 
@@ -2961,10 +3041,23 @@ export default function SegmentEditor({
   useEffect(() => {
     if (segment && state === null) {
       setState({
+        disabled,
         editedSegment: segment,
       });
     }
-  }, [segment, setState, state]);
+  }, [segment, setState, state, disabled]);
+
+  // Update the disabled state when the prop changes
+  useEffect(() => {
+    if (state !== null) {
+      setState((draft) => {
+        if (draft) {
+          draft.disabled = disabled;
+        }
+        return draft;
+      });
+    }
+  }, [disabled, setState, state]);
 
   const contextValue: SegmentEditorContextType | null = useMemo(() => {
     if (!state) {

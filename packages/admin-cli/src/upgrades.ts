@@ -16,6 +16,7 @@ import { db, insert } from "backend-lib/src/db";
 import * as schema from "backend-lib/src/db/schema";
 import logger from "backend-lib/src/logger";
 import { publicDrizzleMigrate } from "backend-lib/src/migrate";
+import { getSubscriptionGroupUnsubscribedSegmentName } from "backend-lib/src/subscriptionGroups";
 import {
   EmailProviderSecret,
   EmailProviderType,
@@ -29,6 +30,13 @@ import {
   CREATE_INTERNAL_EVENTS_TABLE_MATERIALIZED_VIEW_QUERY,
   CREATE_INTERNAL_EVENTS_TABLE_QUERY,
   CREATE_UPDATED_COMPUTED_PROPERTY_STATE_V3_MV_QUERY,
+  CREATE_USER_PROPERTY_IDX_DATE_MV_QUERY,
+  CREATE_USER_PROPERTY_IDX_DATE_QUERY,
+  CREATE_USER_PROPERTY_IDX_NUM_MV_QUERY,
+  CREATE_USER_PROPERTY_IDX_NUM_QUERY,
+  CREATE_USER_PROPERTY_IDX_STR_MV_QUERY,
+  CREATE_USER_PROPERTY_IDX_STR_QUERY,
+  CREATE_USER_PROPERTY_INDEX_CONFIG_QUERY,
   createUserEventsTables,
   GROUP_MATERIALIZED_VIEWS,
   GROUP_TABLES,
@@ -40,6 +48,29 @@ import { unwrap } from "isomorphic-lib/src/resultHandling/resultUtils";
 import { schemaValidateWithErr } from "isomorphic-lib/src/resultHandling/schemaValidation";
 
 import { spawnWithEnv, spawnWithEnvSafe } from "./spawn";
+
+export async function createUserSortingIndexTables() {
+  logger().info("Creating user sorting index tables and materialized views.");
+  const queries = [
+    CREATE_USER_PROPERTY_INDEX_CONFIG_QUERY,
+    CREATE_USER_PROPERTY_IDX_NUM_QUERY,
+    CREATE_USER_PROPERTY_IDX_STR_QUERY,
+    CREATE_USER_PROPERTY_IDX_DATE_QUERY,
+    CREATE_USER_PROPERTY_IDX_NUM_MV_QUERY,
+    CREATE_USER_PROPERTY_IDX_STR_MV_QUERY,
+    CREATE_USER_PROPERTY_IDX_DATE_MV_QUERY,
+  ];
+
+  for (const q of queries) {
+    await command({
+      query: q,
+      clickhouse_settings: {
+        wait_end_of_query: 1,
+      },
+    });
+  }
+  logger().info("Finished creating user sorting index tables and views.");
+}
 
 export async function disentangleResendSendgrid() {
   logger().info("Disentangling resend and sendgrid email providers.");
@@ -327,7 +358,7 @@ export async function refreshNotExistsSegmentDefinitionUpdatedAt() {
             (node) =>
               node.type === SegmentNodeType.Trait &&
               "operator" in node &&
-              node.operator?.type === SegmentOperatorType.NotExists,
+              node.operator.type === SegmentOperatorType.NotExists,
           );
 
           if (hasNotExistsTraitNode) {
@@ -1017,4 +1048,128 @@ export async function upgradeV023Post() {
   await startComputePropertiesWorkflowGlobal();
   await refreshNotExistsSegmentDefinitionUpdatedAt();
   logger().info("Post-upgrade steps for v0.23.0 completed.");
+}
+
+export async function migrateMessageIdIndexToBloomFilter() {
+  logger().info(
+    "Migrating message_id index from minmax to bloom_filter on user_events_v2",
+  );
+
+  // Step 1: Drop existing minmax index
+  logger().info("Dropping existing message_id_idx minmax index");
+  await command({
+    query: "ALTER TABLE user_events_v2 DROP INDEX IF EXISTS message_id_idx",
+    clickhouse_settings: { wait_end_of_query: 1 },
+  });
+
+  // Step 2: Add bloom filter index
+  logger().info("Adding message_id_idx bloom_filter index");
+  await command({
+    query:
+      "ALTER TABLE user_events_v2 ADD INDEX message_id_idx message_id TYPE bloom_filter(0.01) GRANULARITY 4",
+    clickhouse_settings: { wait_end_of_query: 1 },
+  });
+
+  // Step 3: Materialize the index on existing data
+  logger().info(
+    "Materializing message_id_idx index on existing data (runs in background)",
+  );
+  await command({
+    query: "ALTER TABLE user_events_v2 MATERIALIZE INDEX message_id_idx",
+    clickhouse_settings: { wait_end_of_query: 1 },
+  });
+
+  logger().info(
+    "message_id index migration initiated. Use 'SELECT * FROM system.mutations WHERE table = \"user_events_v2\"' to check progress.",
+  );
+}
+
+export async function createUnsubscribedSegmentsForExistingSubscriptionGroups() {
+  logger().info(
+    "Creating unsubscribed segments for existing subscription groups",
+  );
+
+  const subscriptionGroups = await db().query.subscriptionGroup.findMany({
+    columns: {
+      id: true,
+      workspaceId: true,
+    },
+  });
+
+  logger().info(
+    { count: subscriptionGroups.length },
+    "Found subscription groups to check",
+  );
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const subscriptionGroup of subscriptionGroups) {
+    const unsubscribedSegmentName = getSubscriptionGroupUnsubscribedSegmentName(
+      subscriptionGroup.id,
+    );
+
+    // Check if unsubscribed segment already exists
+    const existingSegment = await db().query.segment.findFirst({
+      where: and(
+        eq(schema.segment.workspaceId, subscriptionGroup.workspaceId),
+        eq(schema.segment.name, unsubscribedSegmentName),
+      ),
+    });
+
+    if (existingSegment) {
+      skipped += 1;
+      // eslint-disable-next-line no-continue
+      continue;
+    }
+
+    // Create the unsubscribed segment
+    const unsubscribedSegmentDefinition: SegmentDefinition = {
+      entryNode: {
+        type: SegmentNodeType.SubscriptionGroupUnsubscribed,
+        id: "1",
+        subscriptionGroupId: subscriptionGroup.id,
+      },
+      nodes: [],
+    };
+
+    const now = new Date();
+    await insert({
+      table: schema.segment,
+      values: {
+        name: unsubscribedSegmentName,
+        workspaceId: subscriptionGroup.workspaceId,
+        definition: unsubscribedSegmentDefinition,
+        subscriptionGroupId: subscriptionGroup.id,
+        resourceType: "Internal",
+        createdAt: now,
+        updatedAt: now,
+      },
+    }).then(unwrap);
+
+    created += 1;
+    logger().info(
+      {
+        subscriptionGroupId: subscriptionGroup.id,
+        workspaceId: subscriptionGroup.workspaceId,
+        segmentName: unsubscribedSegmentName,
+      },
+      "Created unsubscribed segment",
+    );
+  }
+
+  logger().info(
+    { created, skipped, total: subscriptionGroups.length },
+    "Finished creating unsubscribed segments for existing subscription groups",
+  );
+}
+
+export async function upgradeV024Pre() {
+  logger().info("Performing pre-upgrade steps for v0.24.0");
+  logger().info("Running postgres migrations");
+  await publicDrizzleMigrate();
+  await createUserSortingIndexTables();
+  await migrateMessageIdIndexToBloomFilter();
+  await createUnsubscribedSegmentsForExistingSubscriptionGroups();
+  logger().info("Pre-upgrade steps for v0.24.0 completed.");
 }

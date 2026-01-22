@@ -106,8 +106,19 @@ export async function getEventsByIdWithRetry(
   metadata: { journeyId?: string; userId: string },
 ) {
   try {
-    // Defaults to 10 retries
-    const events = await pRetry(() => getEventsById(params, metadata));
+    // Retry policy (bounded for workflow/test safety):
+    // - up to 10 retries
+    // - retry delays are clamped to 50ms–1000ms
+    // - stop retrying after ~60s total (maxRetryTime), even if retries remain
+    //
+    // This keeps workflows responsive while still handling brief ClickHouse
+    // visibility lag right after writing events.
+    const events = await pRetry(() => getEventsById(params, metadata), {
+      retries: 10,
+      minTimeout: 50,
+      maxTimeout: 1000,
+      maxRetryTime: 60_000,
+    });
     return events;
   } catch (e) {
     const workflowId = safeWorkflowId();
@@ -199,7 +210,11 @@ async function sendMessageInner({
       findAllUserPropertyAssignments({ userId, workspaceId, context }),
       db().query.journey.findFirst({ where: eq(dbJourney.id, journeyId) }),
       subscriptionGroupId
-        ? getSubscriptionGroupWithAssignment({ userId, subscriptionGroupId })
+        ? getSubscriptionGroupWithAssignment({
+            userId,
+            workspaceId,
+            subscriptionGroupId,
+          })
         : null,
     ]);
 
@@ -617,8 +632,8 @@ export interface WaitForComputePropertiesParams {
 
 // Polls for the earliest compute-property period to advance beyond `after`.
 // By default this will run up to ~18 minutes (5 attempts with exponential
-// backoff starting at 10s), but the base delay and attempt count can be tuned
-// via config or per-call overrides.
+// backoff; base delay is 36s, first sleep is 72s), but the base delay and
+// attempt count can be tuned via config or per-call overrides.
 const HEARTBEAT_CHUNK_MS = 10_000;
 
 async function sleepWithHeartbeat({

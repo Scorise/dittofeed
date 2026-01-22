@@ -5,6 +5,7 @@ import queryString from "querystring";
 import { URL } from "url";
 import { Overwrite } from "utility-types";
 
+import { resolveApiBase } from "./apiBase";
 import { loadConfig, setConfigOnEnv } from "./config/loader";
 import {
   AuthMode,
@@ -25,6 +26,7 @@ const BaseRawConfigProps = {
   databasePort: Type.Optional(Type.String()),
   databaseParams: Type.Optional(Type.String()),
   databaseName: Type.Optional(Type.String()),
+  databaseNameSuffix: Type.Optional(Type.String()),
   writeMode: Type.Optional(WriteMode),
   temporalAddress: Type.Optional(Type.String()),
   temporalConnectionTimeout: Type.Optional(
@@ -35,6 +37,7 @@ const BaseRawConfigProps = {
   clickhouseDatabase: Type.Optional(Type.String()),
   clickhouseUser: Type.String(),
   clickhousePassword: Type.String(),
+  defaultUserJourneyMaxAttempts: Type.Optional(Type.String({ format: "naturalNumber" })),
   kafkaBrokers: Type.Optional(Type.String()),
   kafkaUsername: Type.Optional(Type.String()),
   kafkaPassword: Type.Optional(Type.String()),
@@ -81,6 +84,12 @@ const BaseRawConfigProps = {
     }),
   ),
   dashboardUrlName: Type.Optional(Type.String()),
+  dashboardApiBase: Type.Optional(Type.String()),
+  dashboardApiName: Type.Optional(Type.String()),
+  dashboardApiDomain: Type.Optional(Type.String()),
+  dashboardApiSubdomain: Type.Optional(Type.String()),
+  dashboardApiProtocol: Type.Optional(Type.String()),
+  dashboardApiPort: Type.Optional(Type.String()),
   enableMobilePush: Type.Optional(BoolStr),
   hubspotClientId: Type.Optional(Type.String()),
   hubspotClientSecret: Type.Optional(Type.String()),
@@ -162,6 +171,12 @@ const BaseRawConfigProps = {
   clickhouseMaxBytesBeforeExternalGroupBy: Type.Optional(
     Type.String({ format: "naturalNumber" }),
   ),
+  clickhouseMaxExecutionTime: Type.Optional(
+    Type.String({ format: "naturalNumber" }),
+  ),
+  clickhouseMaxMemoryUsage: Type.Optional(
+    Type.String({ format: "naturalNumber" }),
+  ),
   computePropertiesSplit: Type.Optional(BoolStr),
   computePropertiesTimeout: Type.Optional(
     Type.String({ format: "naturalNumber" }),
@@ -177,6 +192,16 @@ const BaseRawConfigProps = {
     Type.String({ format: "naturalNumber" }),
   ),
   batchChunkSize: Type.Optional(Type.String({ format: "naturalNumber" })),
+  // Skip JSON_EXISTS checks in pruning queries to improve performance for
+  // workspaces with large event volumes. This makes pruning less precise but
+  // avoids expensive JSON parsing during the pruning phase.
+  skipPruneJsonExists: Type.Optional(BoolStr),
+  broadcastSendMessagesMaxAttempts: Type.Optional(
+    Type.String({ format: "naturalNumber" }),
+  ),
+  defaultGetSegmentAndEventDetailsMaxAttempts: Type.Optional(
+    Type.String({ format: "naturalNumber" }),
+  ),
 };
 
 function defaultTemporalAddress(inputURL?: string): string {
@@ -268,6 +293,7 @@ export type Config = Overwrite<
     computePropertiesSchedulerInterval: number;
     computePropertiesSchedulerQueueRestartDelay: number;
     computePropertiesWorkflowTaskTimeout: number;
+    defaultUserJourneyMaxAttempts?: number;
     dashboardUrl: string;
     databaseParams: Record<string, string>;
     databaseUrl: string;
@@ -307,19 +333,25 @@ export type Config = Overwrite<
     clickhouseComputePropertiesRequestTimeout?: number;
     clickhouseComputePropertiesMaxExecutionTime?: number;
     clickhouseMaxBytesRatioBeforeExternalGroupBy?: number;
+    clickhouseMaxExecutionTime: number;
+    clickhouseMaxMemoryUsage: string;
     computePropertiesSplit: boolean;
     computePropertiesTimeout: number;
     waitForComputePropertiesBaseDelayMs: number;
     waitForComputePropertiesMaxAttempts: number;
     metricsExportIntervalMs: number;
     batchChunkSize: number;
+    skipPruneJsonExists: boolean;
     // Cold storage timeouts (ms)
     clickhouseColdStorageRequestTimeout?: number;
     clickhouseColdStorageMaxExecutionTime?: number;
+    broadcastSendMessagesMaxAttempts: number;
+    defaultGetSegmentAndEventDetailsMaxAttempts: number;
   }
 > & {
   defaultUserEventsTableVersion: string;
   database: string;
+  apiBase: string;
 };
 
 export const SECRETS = new Set<keyof Config>([
@@ -398,9 +430,14 @@ function parseDatabaseUrl(
     rawConfig.databasePassword ?? DEFAULT_BACKEND_CONFIG.databasePassword;
   const databaseHost = rawConfig.databaseHost ?? "localhost";
   const databasePort = rawConfig.databasePort ?? "5432";
+  const suffix = rawConfig.databaseNameSuffix
+    ? `_${rawConfig.databaseNameSuffix.replace(/-/g, "_")}`
+    : "";
   const database =
     rawConfig.databaseName ??
-    (rawConfig.nodeEnv === NodeEnvEnum.Test ? "dittofeed_test" : "dittofeed");
+    (rawConfig.nodeEnv === NodeEnvEnum.Test
+      ? `dittofeed_test${suffix}`
+      : `dittofeed${suffix}`);
   const url = new URL(
     `postgresql://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${database}`,
   );
@@ -451,6 +488,17 @@ function parseToNumber({
   return coerced;
 }
 
+function parseMaxAttempts(
+  value: string | undefined,
+  defaultValue: number,
+): number {
+  const parsed = value ? parseInt(value) : defaultValue;
+  if (parsed < 1) {
+    throw new Error(`maxAttempts must be >= 1, got ${parsed}`);
+  }
+  return parsed;
+}
+
 function buildDashboardUrl({
   nodeEnv,
   dashboardUrl,
@@ -473,9 +521,14 @@ function buildDashboardUrl({
 }
 
 function parseRawConfig(rawConfig: RawConfig): Config {
+  const suffix = rawConfig.databaseNameSuffix
+    ? `_${rawConfig.databaseNameSuffix.replace(/-/g, "_")}`
+    : "";
   const clickhouseDatabase =
     rawConfig.clickhouseDatabase ??
-    (rawConfig.nodeEnv === NodeEnvEnum.Test ? "dittofeed_test" : "dittofeed");
+    (rawConfig.nodeEnv === NodeEnvEnum.Test
+      ? `dittofeed_test${suffix}`
+      : `dittofeed${suffix}`);
 
   const {
     databaseUrl,
@@ -513,6 +566,22 @@ function parseRawConfig(rawConfig: RawConfig): Config {
     nodeEnv,
     dashboardUrl: rawConfig.dashboardUrl,
     dashboardUrlName: rawConfig.dashboardUrlName,
+  });
+  // Resolve the named env var for dashboardApiName if provided
+  const resolvedDashboardApiName =
+    rawConfig.dashboardApiName && process.env[rawConfig.dashboardApiName]
+      ? process.env[rawConfig.dashboardApiName]
+      : undefined;
+  const apiBase = resolveApiBase({
+    dashboardApiBase: rawConfig.dashboardApiBase,
+    dashboardApiName: resolvedDashboardApiName,
+    dashboardApiDomain: rawConfig.dashboardApiDomain,
+    dashboardApiSubdomain: rawConfig.dashboardApiSubdomain,
+    dashboardApiProtocol: rawConfig.dashboardApiProtocol,
+    dashboardApiPort: rawConfig.dashboardApiPort,
+    authMode,
+    dashboardUrl,
+    nodeEnv,
   });
   const computedPropertiesTaskQueue =
     rawConfig.computedPropertiesTaskQueue ?? "default";
@@ -598,6 +667,7 @@ function parseRawConfig(rawConfig: RawConfig): Config {
     enableSourceControl: rawConfig.enableSourceControl === "true",
     authMode,
     dashboardUrl,
+    apiBase,
     trackDashboard: rawConfig.trackDashboard === "true",
     enableMobilePush: rawConfig.enableMobilePush === "true",
     readQueryPageSize: rawConfig.readQueryPageSize
@@ -694,6 +764,13 @@ function parseRawConfig(rawConfig: RawConfig): Config {
       rawConfig.clickhouseMaxBytesRatioBeforeExternalGroupBy
         ? parseFloat(rawConfig.clickhouseMaxBytesRatioBeforeExternalGroupBy)
         : undefined,
+    // 5 minutes
+    clickhouseMaxExecutionTime: rawConfig.clickhouseMaxExecutionTime
+      ? parseInt(rawConfig.clickhouseMaxExecutionTime)
+      : 300,
+    // 10 GB
+    clickhouseMaxMemoryUsage:
+      rawConfig.clickhouseMaxMemoryUsage ?? "10000000000",
     computePropertiesSplit: rawConfig.computePropertiesSplit === "true",
     computePropertiesTimeout: rawConfig.computePropertiesTimeout
       ? parseInt(rawConfig.computePropertiesTimeout)
@@ -701,17 +778,29 @@ function parseRawConfig(rawConfig: RawConfig): Config {
     waitForComputePropertiesBaseDelayMs:
       rawConfig.waitForComputePropertiesBaseDelayMs
         ? parseInt(rawConfig.waitForComputePropertiesBaseDelayMs)
-        : 10_000,
-    waitForComputePropertiesMaxAttempts:
-      rawConfig.waitForComputePropertiesMaxAttempts
-        ? parseInt(rawConfig.waitForComputePropertiesMaxAttempts)
-        : 5,
+        : 36_000,
+    waitForComputePropertiesMaxAttempts: parseMaxAttempts(
+      rawConfig.waitForComputePropertiesMaxAttempts,
+      nodeEnv === NodeEnvEnum.Test ? 1 : 5,
+    ),
     metricsExportIntervalMs: rawConfig.metricsExportIntervalMs
       ? parseInt(rawConfig.metricsExportIntervalMs)
       : 60 * 1000,
     batchChunkSize: rawConfig.batchChunkSize
       ? parseInt(rawConfig.batchChunkSize)
       : 100,
+    skipPruneJsonExists: rawConfig.skipPruneJsonExists !== "false",
+    broadcastSendMessagesMaxAttempts: parseMaxAttempts(
+      rawConfig.broadcastSendMessagesMaxAttempts,
+      5,
+    ),
+    defaultUserJourneyMaxAttempts: rawConfig.defaultUserJourneyMaxAttempts !== undefined ? parseInt(
+      rawConfig.defaultUserJourneyMaxAttempts,
+    ) : (nodeEnv === NodeEnvEnum.Test ? 1 : undefined),
+    defaultGetSegmentAndEventDetailsMaxAttempts: parseMaxAttempts(
+      rawConfig.defaultGetSegmentAndEventDetailsMaxAttempts,
+      nodeEnv === NodeEnvEnum.Test ? 1 : 10,
+    ),
   };
 
   return parsedConfig;

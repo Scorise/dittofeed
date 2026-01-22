@@ -131,6 +131,8 @@ function getClientConfig({
     clickhouseDatabase: configDatabase,
     clickhouseUser: configUser,
     clickhousePassword: configPassword,
+    clickhouseMaxExecutionTime,
+    clickhouseMaxMemoryUsage,
   } = config();
 
   const url = paramsHost ?? configHost;
@@ -156,6 +158,8 @@ function getClientConfig({
         maxBytesRatioBeforeExternalGroupBy,
       max_bytes_before_external_group_by: maxBytesBeforeExternalGroupBy,
       date_time_input_format: "best_effort",
+      max_execution_time: clickhouseMaxExecutionTime,
+      max_memory_usage: clickhouseMaxMemoryUsage,
     },
   };
   logger().debug({ clientConfig }, "ClickHouse client config");
@@ -262,7 +266,7 @@ export async function command(
       "clickhouse-command",
     );
     try {
-      return client.command({ query_id: queryId, ...params });
+      return await client.command({ query_id: queryId, ...params });
     } catch (error) {
       logger().error(
         { err: error, queryId },
@@ -293,7 +297,7 @@ export async function query(
       "clickhouse-query",
     );
     try {
-      return client.query<"JSONEachRow">({
+      return await client.query<"JSONEachRow">({
         query_id: queryId,
         ...params,
         format: "JSONEachRow",

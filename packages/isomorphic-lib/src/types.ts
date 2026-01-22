@@ -189,6 +189,8 @@ export const SubscriptionGroupResource = Type.Object({
   name: Type.String(),
   channel: Type.Enum(ChannelType),
   type: Type.Enum(SubscriptionGroupType),
+  segmentId: Type.Optional(Type.String()),
+  unsubscribedSegmentId: Type.Optional(Type.String()),
 });
 
 export type SubscriptionGroupResource = Static<
@@ -334,6 +336,7 @@ export enum SegmentNodeType {
   LastPerformed = "LastPerformed",
   Broadcast = "Broadcast",
   SubscriptionGroup = "SubscriptionGroup",
+  SubscriptionGroupUnsubscribed = "SubscriptionGroupUnsubscribed",
   Email = "Email",
   Manual = "Manual",
   RandomBucket = "RandomBucket",
@@ -360,6 +363,16 @@ export const SubscriptionGroupSegmentNode = Type.Object({
 
 export type SubscriptionGroupSegmentNode = Static<
   typeof SubscriptionGroupSegmentNode
+>;
+
+export const SubscriptionGroupUnsubscribedSegmentNode = Type.Object({
+  type: Type.Literal(SegmentNodeType.SubscriptionGroupUnsubscribed),
+  id: Type.String(),
+  subscriptionGroupId: Type.String(),
+});
+
+export type SubscriptionGroupUnsubscribedSegmentNode = Static<
+  typeof SubscriptionGroupUnsubscribedSegmentNode
 >;
 
 export const RandomBucketSegmentNode = Type.Object({
@@ -562,6 +575,7 @@ export const BodySegmentNode = Type.Union([
   EmailSegmentNode,
   BroadcastSegmentNode,
   SubscriptionGroupSegmentNode,
+  SubscriptionGroupUnsubscribedSegmentNode,
   RandomBucketSegmentNode,
   IncludesSegmentNode,
 ]);
@@ -1645,6 +1659,12 @@ export const BaseEmailContents = Type.Object({
         "Names of user properties to attach to the email as attachments.",
     }),
   ),
+  identifierKey: Type.Optional(
+    Type.String({
+      description:
+        "Name of user property to use as recipient address. Defaults to 'email' if not specified.",
+    }),
+  ),
 });
 
 export type BaseEmailContents = Static<typeof BaseEmailContents>;
@@ -1740,6 +1760,12 @@ export type MobilePushTemplateResource = Static<
 
 const SmsContents = Type.Object({
   body: Type.String(),
+  identifierKey: Type.Optional(
+    Type.String({
+      description:
+        "Name of user property to use as recipient phone number. Defaults to 'phone' if not specified.",
+    }),
+  ),
 });
 
 export const SmsTemplateResource = Type.Composite(
@@ -1868,6 +1894,7 @@ export type UpsertMessageTemplateResource = Static<
 export enum UpsertMessageTemplateValidationErrorType {
   IdError = "IdError",
   UniqueConstraintViolation = "UniqueConstraintViolation",
+  InvalidIdentifierKey = "InvalidIdentifierKey",
 }
 
 export const UniqueConstraintViolationError = Type.Object({
@@ -1886,9 +1913,22 @@ export const IdErrorMessageTemplateViolation = Type.Object({
   message: Type.String(),
 });
 
+export const InvalidIdentifierKeyError = Type.Object({
+  type: Type.Literal(
+    UpsertMessageTemplateValidationErrorType.InvalidIdentifierKey,
+  ),
+  message: Type.String(),
+  identifierKey: Type.String(),
+});
+
+export type InvalidIdentifierKeyError = Static<
+  typeof InvalidIdentifierKeyError
+>;
+
 export const UpsertMessageTemplateValidationError = Type.Union([
   UniqueConstraintViolationError,
   IdErrorMessageTemplateViolation,
+  InvalidIdentifierKeyError,
 ]);
 
 export type UpsertMessageTemplateValidationError = Static<
@@ -2525,7 +2565,9 @@ export const UserPropertyStatusEnum = {
   Paused: "Paused",
 } as const;
 
-export const UserPropertyStatus = Type.KeyOf(Type.Const(UserPropertyStatusEnum));
+export const UserPropertyStatus = Type.KeyOf(
+  Type.Const(UserPropertyStatusEnum),
+);
 
 export type UserPropertyStatus = Static<typeof UserPropertyStatus>;
 
@@ -2571,6 +2613,63 @@ export const DeleteUserPropertyRequest = Type.Object({
 
 export type DeleteUserPropertyRequest = Static<
   typeof DeleteUserPropertyRequest
+>;
+
+// User Property Index types
+export const UserPropertyIndexType = Type.Union([
+  Type.Literal("String"),
+  Type.Literal("Number"),
+  Type.Literal("Date"),
+]);
+
+export type UserPropertyIndexType = Static<typeof UserPropertyIndexType>;
+
+export const UserPropertyIndexResource = Type.Object({
+  id: Type.String(),
+  workspaceId: Type.String(),
+  userPropertyId: Type.String(),
+  type: UserPropertyIndexType,
+  createdAt: Type.Number(),
+  updatedAt: Type.Number(),
+});
+
+export type UserPropertyIndexResource = Static<
+  typeof UserPropertyIndexResource
+>;
+
+export const GetUserPropertyIndicesRequest = Type.Object({
+  workspaceId: Type.String(),
+});
+
+export type GetUserPropertyIndicesRequest = Static<
+  typeof GetUserPropertyIndicesRequest
+>;
+
+export const GetUserPropertyIndicesResponse = Type.Object({
+  indices: Type.Array(UserPropertyIndexResource),
+});
+
+export type GetUserPropertyIndicesResponse = Static<
+  typeof GetUserPropertyIndicesResponse
+>;
+
+export const UpsertUserPropertyIndexRequest = Type.Object({
+  workspaceId: Type.String(),
+  userPropertyId: Type.String(),
+  type: UserPropertyIndexType,
+});
+
+export type UpsertUserPropertyIndexRequest = Static<
+  typeof UpsertUserPropertyIndexRequest
+>;
+
+export const DeleteUserPropertyIndexRequest = Type.Object({
+  workspaceId: Type.String(),
+  userPropertyId: Type.String(),
+});
+
+export type DeleteUserPropertyIndexRequest = Static<
+  typeof DeleteUserPropertyIndexRequest
 >;
 
 export const UpdateUserPropertyStatusRequest = Type.Object({
@@ -2644,18 +2743,47 @@ export type GetUsersUserPropertyFilter = Static<
   typeof GetUsersUserPropertyFilter
 >;
 
+export enum SortOrderEnum {
+  Asc = "asc",
+  Desc = "desc",
+}
+
+export const SortOrder = Type.Enum(SortOrderEnum);
+
+export type SortOrder = Static<typeof SortOrder>;
+
 export const GetUsersRequest = Type.Object({
   cursor: Type.Optional(Type.String()),
   segmentFilter: Type.Optional(Type.Array(Type.String())),
+  negativeSegmentFilter: Type.Optional(Type.Array(Type.String())),
   limit: Type.Optional(Type.Number()),
   direction: Type.Optional(CursorDirection),
   userIds: Type.Optional(Type.Array(UserId)),
   subscriptionGroupFilter: Type.Optional(Type.Array(Type.String())),
+  negativeSubscriptionGroupFilter: Type.Optional(Type.Array(Type.String())),
+  unsubscribedFromFilter: Type.Optional(Type.Array(Type.String())),
   userPropertyFilter: Type.Optional(GetUsersUserPropertyFilter),
   workspaceId: Type.String(),
+  includeSubscriptions: Type.Optional(Type.Boolean()),
+  sortBy: Type.Optional(Type.String()),
+  sortOrder: Type.Optional(SortOrder),
+  /**
+   * When true, cursor comparison is exclusive (< or >) for both directions.
+   * When false (default), Before direction uses inclusive comparison (<= or >=).
+   * Set to true for correct back-navigation behavior.
+   */
+  exclusiveCursor: Type.Optional(Type.Boolean()),
 });
 
 export type GetUsersRequest = Static<typeof GetUsersRequest>;
+
+export const UserSubscriptionItem = Type.Object({
+  id: Type.String(),
+  name: Type.String(),
+  subscribed: Type.Boolean(),
+});
+
+export type UserSubscriptionItem = Static<typeof UserSubscriptionItem>;
 
 const GetUsersResponseItem = Type.Object({
   id: Type.String(),
@@ -2673,6 +2801,7 @@ const GetUsersResponseItem = Type.Object({
       name: Type.String(),
     }),
   ),
+  subscriptions: Type.Optional(Type.Array(UserSubscriptionItem)),
 });
 
 export type GetUsersResponseItem = Static<typeof GetUsersResponseItem>;
@@ -2883,6 +3012,21 @@ export const SubscriptionParams = Type.Object(
       Type.String({
         description:
           "Show subscription groups for all channels instead of just the changed channel.",
+      }),
+    ),
+    success: Type.Optional(
+      Type.String({
+        description: "Form submission success flag.",
+      }),
+    ),
+    error: Type.Optional(
+      Type.String({
+        description: "Form submission error flag.",
+      }),
+    ),
+    previewSubmitted: Type.Optional(
+      Type.String({
+        description: "Form submitted in preview mode flag.",
       }),
     ),
   },
@@ -3559,6 +3703,56 @@ export const CsvUploadValidationError = Type.Object({
 });
 
 export type CsvUploadValidationError = Static<typeof CsvUploadValidationError>;
+
+export enum ProcessSubscriptionGroupCsvErrorType {
+  MissingHeaders = "MissingHeaders",
+  RowValidationErrors = "RowValidationErrors",
+  InvalidActionValue = "InvalidActionValue",
+  ParseError = "ParseError",
+}
+
+export const MissingHeadersCsvError = Type.Object({
+  type: Type.Literal(ProcessSubscriptionGroupCsvErrorType.MissingHeaders),
+  message: Type.String(),
+});
+
+export type MissingHeadersCsvError = Static<typeof MissingHeadersCsvError>;
+
+export const RowValidationCsvError = Type.Object({
+  type: Type.Literal(ProcessSubscriptionGroupCsvErrorType.RowValidationErrors),
+  message: Type.String(),
+  rowErrors: Type.Array(UserUploadRowErrors),
+});
+
+export type RowValidationCsvError = Static<typeof RowValidationCsvError>;
+
+export const InvalidActionValueCsvError = Type.Object({
+  type: Type.Literal(ProcessSubscriptionGroupCsvErrorType.InvalidActionValue),
+  message: Type.String(),
+  actionValue: Type.String(),
+});
+
+export type InvalidActionValueCsvError = Static<
+  typeof InvalidActionValueCsvError
+>;
+
+export const ParseCsvError = Type.Object({
+  type: Type.Literal(ProcessSubscriptionGroupCsvErrorType.ParseError),
+  message: Type.String(),
+});
+
+export type ParseCsvError = Static<typeof ParseCsvError>;
+
+export const ProcessSubscriptionGroupCsvError = Type.Union([
+  MissingHeadersCsvError,
+  RowValidationCsvError,
+  InvalidActionValueCsvError,
+  ParseCsvError,
+]);
+
+export type ProcessSubscriptionGroupCsvError = Static<
+  typeof ProcessSubscriptionGroupCsvError
+>;
 
 export enum IntegrationType {
   Sync = "Sync",
@@ -4586,6 +4780,7 @@ export const PostMarkSecret = Type.Object({
   type: Type.Literal(EmailProviderType.PostMark),
   apiKey: Type.Optional(Type.String()),
   webhookKey: Type.Optional(Type.String()),
+  messageStream: Type.Optional(Type.String()),
 });
 
 export type PostMarkSecret = Static<typeof PostMarkSecret>;
@@ -4595,13 +4790,15 @@ export const AmazonSesSecret = Type.Object({
   accessKeyId: Type.Optional(Type.String()),
   secretAccessKey: Type.Optional(Type.String()),
   region: Type.Optional(Type.String()),
+  endpoint: Type.Optional(Type.String()),
 });
 
 export type AmazonSesSecret = Static<typeof AmazonSesSecret>;
 
 export type AmazonSesConfig = Required<
   Pick<AmazonSesSecret, "accessKeyId" | "secretAccessKey" | "region">
->;
+> &
+  Pick<AmazonSesSecret, "endpoint">;
 
 export const AmazonSesMailFields = Type.Object({
   from: Type.String(),
@@ -5235,6 +5432,7 @@ export const ComponentConfigurationEnum = {
   DeliveriesTable: "DeliveriesTable",
   Broadcast: "Broadcast",
   MessageTemplate: "MessageTemplate",
+  AnalysisChart: "AnalysisChart",
 } as const;
 
 export const DeliveriesAllowedColumnEnum = {
@@ -5335,10 +5533,77 @@ export type MessageTemplateConfiguration = Static<
   typeof MessageTemplateConfiguration
 >;
 
+export const AnalysisFilterKeyEnum = {
+  journeyIds: "journeyIds",
+  broadcastIds: "broadcastIds",
+  channels: "channels",
+  providers: "providers",
+  messageStates: "messageStates",
+  templateIds: "templateIds",
+  userIds: "userIds",
+} as const;
+
+export const AnalysisFilterKey = Type.Union([
+  Type.Literal(AnalysisFilterKeyEnum.journeyIds),
+  Type.Literal(AnalysisFilterKeyEnum.broadcastIds),
+  Type.Literal(AnalysisFilterKeyEnum.channels),
+  Type.Literal(AnalysisFilterKeyEnum.providers),
+  Type.Literal(AnalysisFilterKeyEnum.messageStates),
+  Type.Literal(AnalysisFilterKeyEnum.templateIds),
+  Type.Literal(AnalysisFilterKeyEnum.userIds),
+]);
+
+export type AnalysisFilterKey = Static<typeof AnalysisFilterKey>;
+
+export const AnalysisChartFilters = Type.Object({
+  journeyIds: Type.Optional(Type.Array(Type.String())),
+  broadcastIds: Type.Optional(Type.Array(Type.String())),
+  channels: Type.Optional(Type.Array(Type.String())),
+  providers: Type.Optional(Type.Array(Type.String())),
+  messageStates: Type.Optional(Type.Array(Type.String())),
+  templateIds: Type.Optional(Type.Array(Type.String())),
+  userIds: Type.Optional(Type.Array(Type.String())),
+});
+
+export type AnalysisChartFilters = Static<typeof AnalysisChartFilters>;
+
+// Group by keys that can be configured (channel and messageState are always available)
+export const AnalysisGroupByKeyEnum = {
+  journey: "journey",
+  broadcast: "broadcast",
+  messageTemplate: "messageTemplate",
+  provider: "provider",
+} as const;
+
+export const AnalysisGroupByKey = Type.Union([
+  Type.Literal(AnalysisGroupByKeyEnum.journey),
+  Type.Literal(AnalysisGroupByKeyEnum.broadcast),
+  Type.Literal(AnalysisGroupByKeyEnum.messageTemplate),
+  Type.Literal(AnalysisGroupByKeyEnum.provider),
+]);
+
+export type AnalysisGroupByKey = Static<typeof AnalysisGroupByKey>;
+
+export const AnalysisChartConfiguration = Type.Object({
+  type: Type.Literal(ComponentConfigurationEnum.AnalysisChart),
+  hardcodedFilters: Type.Optional(AnalysisChartFilters),
+  allowedFilters: Type.Optional(Type.Array(AnalysisFilterKey)),
+  allowedGroupBy: Type.Optional(Type.Array(AnalysisGroupByKey)),
+  allowedChannels: Type.Optional(Type.Array(Type.Enum(ChannelType))),
+  columnAllowList: Type.Optional(Type.Array(DeliveriesAllowedColumn)),
+  templateUriTemplate: Type.Optional(Type.String()),
+  originUriTemplate: Type.Optional(Type.String()),
+});
+
+export type AnalysisChartConfiguration = Static<
+  typeof AnalysisChartConfiguration
+>;
+
 export const ComponentConfigurationDefinition = Type.Union([
   DeliveriesTableConfiguration,
   BroadcastConfiguration,
   MessageTemplateConfiguration,
+  AnalysisChartConfiguration,
 ]);
 
 export type ComponentConfigurationDefinition = Static<
@@ -5556,6 +5821,8 @@ export const GetResourcesResponse = Type.Object({
         id: Type.String(),
         name: Type.String(),
         channel: Type.Enum(ChannelType),
+        segmentId: Type.Optional(Type.String()),
+        unsubscribedSegmentId: Type.Optional(Type.String()),
       }),
     ),
   ),
@@ -5565,6 +5832,7 @@ export const GetResourcesResponse = Type.Object({
       Type.Object({
         id: Type.String(),
         name: Type.String(),
+        channel: Type.Optional(Type.Enum(ChannelType)),
       }),
     ),
   ),
@@ -6221,16 +6489,7 @@ export const GetChartDataRequest = Type.Object({
       Type.Literal("messageState"),
     ]),
   ),
-  filters: Type.Optional(
-    Type.Object({
-      journeyIds: Type.Optional(Type.Array(Type.String())),
-      broadcastIds: Type.Optional(Type.Array(Type.String())),
-      channels: Type.Optional(Type.Array(Type.String())),
-      providers: Type.Optional(Type.Array(Type.String())),
-      messageStates: Type.Optional(Type.Array(Type.String())),
-      templateIds: Type.Optional(Type.Array(Type.String())),
-    }),
-  ),
+  filters: Type.Optional(AnalysisChartFilters),
 });
 
 export type GetChartDataRequest = Static<typeof GetChartDataRequest>;
@@ -6247,6 +6506,7 @@ export const GetSummarizedDataRequest = Type.Object({
       providers: Type.Optional(Type.Array(Type.String())),
       messageStates: Type.Optional(Type.Array(Type.String())),
       templateIds: Type.Optional(Type.Array(Type.String())),
+      userIds: Type.Optional(Type.Array(Type.String())),
     }),
   ),
 });
@@ -6324,4 +6584,116 @@ export const GetJourneyEditorStatsResponse = Type.Object({
 
 export type GetJourneyEditorStatsResponse = Static<
   typeof GetJourneyEditorStatsResponse
+>;
+
+export const ViewInBrowserRequest = Type.Object({
+  w: Type.String({ description: "Workspace ID" }),
+  m: Type.String({ description: "Message ID" }),
+  h: Type.String({ description: "Hash" }),
+});
+
+export type ViewInBrowserRequest = Static<typeof ViewInBrowserRequest>;
+
+// Subscription Management Template Types
+
+export const SubscriptionManagementTemplateResource = Type.Object({
+  id: Type.String(),
+  workspaceId: Type.String(),
+  template: Type.String({ description: "Liquid template content" }),
+  createdAt: Type.String(),
+  updatedAt: Type.String(),
+});
+
+export type SubscriptionManagementTemplateResource = Static<
+  typeof SubscriptionManagementTemplateResource
+>;
+
+export const UpsertSubscriptionManagementTemplateRequest = Type.Object({
+  workspaceId: Type.String(),
+  template: Type.String({ description: "Liquid template content" }),
+});
+
+export type UpsertSubscriptionManagementTemplateRequest = Static<
+  typeof UpsertSubscriptionManagementTemplateRequest
+>;
+
+export const DeleteSubscriptionManagementTemplateRequest = Type.Object({
+  workspaceId: Type.String(),
+});
+
+export type DeleteSubscriptionManagementTemplateRequest = Static<
+  typeof DeleteSubscriptionManagementTemplateRequest
+>;
+
+export const GetSubscriptionManagementTemplateRequest = Type.Object({
+  workspaceId: Type.String(),
+});
+
+export type GetSubscriptionManagementTemplateRequest = Static<
+  typeof GetSubscriptionManagementTemplateRequest
+>;
+
+export const SubscriptionManagementPageRequest = Type.Object(
+  {
+    w: Type.String({ description: "Workspace Id." }),
+    i: Type.String({
+      description: 'Identifier value for channel e.g. "name@email.com".',
+    }),
+    ik: Type.String({
+      description: 'Identifier key for channel e.g. "email".',
+    }),
+    h: Type.String({
+      description:
+        "Subscription change hash, used to authenticate subscription changes.",
+    }),
+    s: Type.Optional(
+      Type.String({
+        description: "Subscription group Id.",
+      }),
+    ),
+    sub: Type.Optional(
+      Type.Union([
+        Type.Literal("1", {
+          description: "Subscribing user to subscription group.",
+        }),
+        Type.Literal("0", {
+          description: "Unsubscribing user from subscription group.",
+        }),
+      ]),
+    ),
+    isPreview: Type.Optional(
+      Type.String({
+        description: "Preview mode flag to skip subscription updates.",
+      }),
+    ),
+    showAllChannels: Type.Optional(
+      Type.String({
+        description:
+          "Show subscription groups for all channels instead of just the changed channel.",
+      }),
+    ),
+  },
+  {
+    description:
+      "Query parameters for the public subscription management page API endpoint.",
+  },
+);
+
+export type SubscriptionManagementPageRequest = Static<
+  typeof SubscriptionManagementPageRequest
+>;
+
+export const SubscriptionManagementPageSubmissionRequest = Type.Intersect([
+  Type.Object({
+    w: Type.String({ description: "Workspace ID" }),
+    h: Type.String({ description: "Hash for user verification" }),
+    i: Type.String({ description: "User identifier" }),
+    ik: Type.String({ description: "Identifier key" }),
+    isPreview: Type.Optional(Type.String()),
+  }),
+  Type.Record(Type.String(), Type.String()),
+]);
+
+export type SubscriptionManagementPageSubmissionRequest = Static<
+  typeof SubscriptionManagementPageSubmissionRequest
 >;

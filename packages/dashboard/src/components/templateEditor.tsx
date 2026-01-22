@@ -317,6 +317,7 @@ function buildTags({
   userId?: string;
 }): Record<string, string> {
   return {
+    broadcastId: "sample-broadcast-id",
     journeyId: "sample-journey-id",
     messageId: "sample-message-id",
     nodeId: "sample-node-id",
@@ -1027,13 +1028,22 @@ export default function TemplateEditor({
     if (channel === ChannelType.Webhook) {
       if (draftToRender?.type === ChannelType.Webhook) {
         to =
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           (debouncedUserProperties[draftToRender.identifierKey] as
             | string
             | null) ?? null;
       }
     } else {
-      const identiferKey = CHANNEL_IDENTIFIERS[channel];
-      to = debouncedUserProperties[identiferKey] ?? null;
+      // Use custom identifierKey from template if specified, otherwise use channel default
+      let identifierKey = CHANNEL_IDENTIFIERS[channel];
+      if (
+        draftToRender &&
+        "identifierKey" in draftToRender &&
+        draftToRender.identifierKey
+      ) {
+        identifierKey = draftToRender.identifierKey;
+      }
+      to = debouncedUserProperties[identifierKey] ?? null;
     }
     let providerAutocomplete: React.ReactNode;
     switch (state.channel) {

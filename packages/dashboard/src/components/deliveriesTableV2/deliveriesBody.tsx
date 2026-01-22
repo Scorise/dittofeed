@@ -232,6 +232,7 @@ function LinkCell({
   column: ColumnDef<Delivery>;
   renderUrl?: RenderUrl;
 }) {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
   const value = column.id ? (row.getValue(column.id) as string) : null;
   const uri = useMemo(() => {
     return renderUrl ? renderUrl(row.original) : null;
@@ -623,10 +624,10 @@ export function useDeliveryBodyState({
     // For now, use the first journey/broadcast ID if arrays are provided
     // TODO: Update backend to support arrays of journey and broadcast IDs
     const resolvedJourneyId =
-      journeyId ||
+      journeyId ??
       (journeyIds && journeyIds.length > 0 ? journeyIds[0] : undefined);
     const resolvedBroadcastId =
-      broadcastId ||
+      broadcastId ??
       (broadcastIds && broadcastIds.length > 0 ? broadcastIds[0] : undefined);
 
     return {

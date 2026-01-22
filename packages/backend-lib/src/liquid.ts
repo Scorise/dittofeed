@@ -4,10 +4,12 @@ import { Liquid } from "liquidjs";
 import MarkdownIt from "markdown-it";
 import mjml2html from "mjml";
 
+import config from "./config";
 import logger from "./logger";
 import { generateSubscriptionChangeUrl } from "./subscriptionGroups";
 import { MessageTags, SubscriptionChange } from "./types";
 import { assignmentAsString, UserPropertyAssignments } from "./userProperties";
+import { generateViewInBrowserHash } from "./viewInBrowser";
 
 const md = new MarkdownIt({
   html: true,
@@ -197,6 +199,44 @@ liquidEngine.registerTag("subscription_management_url", {
   },
 });
 
+function generateViewInBrowserUrl(scope: any): string {
+  const allScope = scope.getAll() as Record<string, unknown>;
+  const workspaceId = allScope.workspace_id as string;
+  const messageId = allScope.message_id as string | undefined;
+
+  const { secretKey } = config();
+  if (!messageId || !secretKey) {
+    logger().debug(
+      {
+        messageId,
+        hasSecretKey: !!secretKey,
+      },
+      "View in browser URL not generating",
+    );
+    return "";
+  }
+
+  const hash = generateViewInBrowserHash({
+    workspaceId,
+    messageId,
+    secret: secretKey,
+  });
+
+  const url = new URL(config().apiBase);
+  url.pathname = "/api/public/view-in-browser";
+  url.searchParams.set("w", workspaceId);
+  url.searchParams.set("m", messageId);
+  url.searchParams.set("h", hash);
+
+  return url.toString();
+}
+
+liquidEngine.registerTag("view_in_browser_url", {
+  render(scope) {
+    return generateViewInBrowserUrl(scope);
+  },
+});
+
 const MJML_NOT_PRESENT_ERROR =
   "Check that your structure is correct and enclosed in <mjml> tags";
 
@@ -212,6 +252,7 @@ export interface RenderLiquidOptions {
   tags?: MessageTags;
   isPreview?: boolean;
   showAllChannels?: boolean;
+  messageId?: string;
 }
 
 export function renderLiquid({
@@ -224,6 +265,7 @@ export function renderLiquid({
   mjml = false,
   tags,
   isPreview = false,
+  messageId,
 }: RenderLiquidOptions): string {
   if (!template?.length) {
     return "";
@@ -238,6 +280,7 @@ export function renderLiquid({
     // TODO [DF-471] remove default
     tags: tags ?? {},
     is_preview: isPreview,
+    message_id: messageId,
   }) as string;
   if (!mjml) {
     return liquidRendered;

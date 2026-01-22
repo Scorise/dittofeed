@@ -1,5 +1,6 @@
 import {
   ChannelType,
+  CursorDirectionEnum,
   EmailProviderType,
   InternalEventType,
   JourneyNodeType,
@@ -32,6 +33,7 @@ export enum SecretNames {
   Webhook = "webhook-channel",
   SmsTestProvider = "SmsTestProvider",
   EmailTestProvider = "EmailTestProvider",
+  ViewInBrowser = "view-in-browser-key",
 }
 
 export enum DataSources {
@@ -116,3 +118,6 @@ export const DEFAULT_SEGMENT_DEFINITION: SegmentDefinition = {
 };
 
 export const OAUTH_COOKIE_NAME = "oauth_csrf_token";
+
+export const DEFAULT_USER_PROPERTY_DELAY_OFFSET_DIRECTION =
+  CursorDirectionEnum.After;

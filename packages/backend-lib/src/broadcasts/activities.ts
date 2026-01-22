@@ -24,7 +24,7 @@ import { withSpan } from "../openTelemetry";
 import { toSegmentResource } from "../segments";
 import {
   getSubscriptionGroupDetails,
-  getSubscriptionGroupWithAssignments,
+  getSubscriptionGroupsWithAssignments,
 } from "../subscriptionGroups";
 import {
   BackendMessageSendResult,
@@ -129,7 +129,7 @@ export async function getBroadcast({
   };
 }
 
-interface SendMessagesResponse {
+export interface SendMessagesResponse {
   messagesSent: number;
   nextCursor?: string;
   includesNonRetryableError: boolean;
@@ -254,9 +254,10 @@ export function sendMessagesFactory(sender: Sender) {
         now: params.now,
       });
 
-      const subscriptionGroup = await getSubscriptionGroupWithAssignments({
-        subscriptionGroupId: broadcast.subscriptionGroupId,
+      const subscriptionGroup = await getSubscriptionGroupsWithAssignments({
+        subscriptionGroupIds: [broadcast.subscriptionGroupId],
         userIds: users.map((user) => user.id),
+        workspaceId: params.workspaceId,
       });
 
       const subscriptionGroupDetailsByUserId = subscriptionGroup.reduce(
@@ -537,6 +538,16 @@ export async function recomputeBroadcastSegment({
         workspaceId,
       },
       "Broadcast not found",
+    );
+    return false;
+  }
+  if (!broadcast.segmentId) {
+    logger().debug(
+      {
+        broadcastId,
+        workspaceId,
+      },
+      "Broadcast segment is null skipping recompute",
     );
     return false;
   }

@@ -6,6 +6,8 @@ import {
   KeyboardArrowRight,
   KeyboardDoubleArrowLeft,
   MoreVert as MoreVertIcon,
+  NotificationsActive as SubscribeIcon,
+  NotificationsOff as UnsubscribeIcon,
   OpenInNew,
   Refresh as RefreshIcon,
 } from "@mui/icons-material";
@@ -48,32 +50,63 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import axios from "axios";
-import deepEqual from "fast-deep-equal";
 import {
   CursorDirectionEnum,
   GetUsersRequest,
-  GetUsersResponseItem,
-  GetUsersUserPropertyFilter,
+  SortOrderEnum,
 } from "isomorphic-lib/src/types";
 import Link from "next/link";
 import { NextRouter, useRouter } from "next/router";
-import React, { useCallback, useEffect, useMemo } from "react";
-import { useImmer } from "use-immer";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { useAppStore } from "../lib/appStore";
 import { useDeleteUserMutation } from "../lib/useDeleteUserMutation";
+import { useUpdateSubscriptionAssignmentMutation } from "../lib/useUpdateSubscriptionAssignmentMutation";
+import { useUserPropertyResourcesQuery } from "../lib/useUserPropertyResourcesQuery";
 import { useUsersCountQuery } from "../lib/useUsersCountQuery";
 import { useUsersQuery } from "../lib/useUsersQuery";
 import { GreyButton } from "./greyButtonStyle";
 import { greyTextFieldStyles } from "./greyScaleStyles";
 import { SquarePaper } from "./squarePaper";
-import {
-  useUserFiltersHash,
-  useUserFilterState,
-} from "./usersTable/userFiltersState";
+import { SortBySelector } from "./usersTable/sortBySelector";
 import { UsersFilterV2 } from "./usersTable/usersFilterV2";
+import {
+  createUsersTableStore,
+  UsersTableStore,
+  UsersTableStoreInitialState,
+} from "./usersTable/usersTableStore";
 
-// Cell components defined outside the main component
+// ============================================================================
+// Store Context Setup
+// ============================================================================
+
+// Context to hold the store instance
+const UsersTableStoreContext = createContext<ReturnType<
+  typeof createUsersTableStore
+> | null>(null);
+
+// Hook to access the store
+function useUsersTableStore(): UsersTableStore {
+  const store = useContext(UsersTableStoreContext);
+  if (!store) {
+    throw new Error(
+      "useUsersTableStore must be used within a UsersTableStoreProvider",
+    );
+  }
+  return store();
+}
+
+// ============================================================================
+// Cell Components (unchanged from original)
+// ============================================================================
+
 function UserIdCell({
   value,
   userUriTemplate,
@@ -196,7 +229,6 @@ function SegmentsPopover({
     label: segment.name,
   }));
 
-  // Focus the input when the component is rendered
   React.useEffect(() => {
     if (inputRef.current) {
       inputRef.current.focus();
@@ -368,6 +400,7 @@ const userIdCellRenderer = ({
   getValue: () => unknown;
   userUriTemplate: string;
 }) => (
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
   <UserIdCell value={getValue() as string} userUriTemplate={userUriTemplate} />
 );
 
@@ -383,17 +416,42 @@ const segmentsCellRenderer = ({
   row: { original: { segments: { id: string; name: string }[] } };
 }) => <SegmentsCell segments={row.original.segments} />;
 
+const sortPropertyCellRenderer = ({
+  getValue,
+}: {
+  getValue: () => unknown;
+}) => {
+  const value = getValue();
+  if (value === null || value === undefined) {
+    return (
+      <Typography variant="body2" color="text.secondary">
+        —
+      </Typography>
+    );
+  }
+  return <Typography variant="body2">{String(value)}</Typography>;
+};
+
 // Actions menu item
-function ActionsCell({ userId }: { userId: string }) {
+function ActionsCell({
+  userId,
+  subscriptionGroupAction,
+}: {
+  userId: string;
+  subscriptionGroupAction?: SubscriptionGroupAction;
+}) {
   const theme = useTheme();
   const [anchorEl, setAnchorEl] = React.useState<HTMLElement | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [deleteSuccess, setDeleteSuccess] = React.useState(false);
   const [deleteError, setDeleteError] = React.useState(false);
+  const [subscriptionSuccess, setSubscriptionSuccess] = React.useState(false);
+  const [subscriptionError, setSubscriptionError] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState("");
   const open = Boolean(anchorEl);
 
   const deleteUserMutation = useDeleteUserMutation();
+  const subscriptionMutation = useUpdateSubscriptionAssignmentMutation();
 
   const handleClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -420,6 +478,7 @@ function ActionsCell({ userId }: { userId: string }) {
       onError: (error) => {
         setDeleteError(true);
         if (axios.isAxiosError(error) && error.response?.data) {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           const errorData = error.response.data as { message?: string };
           setErrorMessage(
             errorData.message ?? "Failed to delete user. Please try again.",
@@ -431,6 +490,46 @@ function ActionsCell({ userId }: { userId: string }) {
     });
     handleConfirmClose();
   };
+
+  const handleSubscriptionClick = () => {
+    if (!subscriptionGroupAction) return;
+    handleClose();
+
+    const isSubscribe = subscriptionGroupAction.type === "subscribe";
+    subscriptionMutation.mutate(
+      {
+        userId,
+        subscriptionGroupId: subscriptionGroupAction.subscriptionGroupId,
+        isSubscribed: isSubscribe,
+      },
+      {
+        onSuccess: () => {
+          setSubscriptionSuccess(true);
+        },
+        onError: (error) => {
+          setSubscriptionError(true);
+          if (axios.isAxiosError(error) && error.response?.data) {
+            // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+            const errorData = error.response.data as { message?: string };
+            setErrorMessage(
+              errorData.message ??
+                `Failed to ${isSubscribe ? "subscribe" : "unsubscribe"} user. Please try again.`,
+            );
+          } else {
+            setErrorMessage(
+              `Failed to ${isSubscribe ? "subscribe" : "unsubscribe"} user. Please try again.`,
+            );
+          }
+        },
+      },
+    );
+  };
+
+  const isSubscribe = subscriptionGroupAction?.type === "subscribe";
+  const subscriptionActionLabel = isSubscribe ? "Subscribe" : "Unsubscribe";
+  const subscriptionSuccessMessage = isSubscribe
+    ? "User successfully subscribed"
+    : "User successfully unsubscribed";
 
   return (
     <>
@@ -467,6 +566,34 @@ function ActionsCell({ userId }: { userId: string }) {
           },
         }}
       >
+        {subscriptionGroupAction && (
+          <MenuItem
+            onClick={handleSubscriptionClick}
+            sx={{
+              borderRadius: 0,
+              py: 1.5,
+              color: theme.palette.grey[700],
+              "&:hover": {
+                bgcolor: theme.palette.grey[100],
+              },
+            }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              {isSubscribe ? (
+                <SubscribeIcon
+                  fontSize="small"
+                  sx={{ color: theme.palette.grey[700] }}
+                />
+              ) : (
+                <UnsubscribeIcon
+                  fontSize="small"
+                  sx={{ color: theme.palette.grey[700] }}
+                />
+              )}
+              <Typography variant="body2">{subscriptionActionLabel}</Typography>
+            </Stack>
+          </MenuItem>
+        )}
         <MenuItem
           onClick={handleDeleteClick}
           sx={{
@@ -488,7 +615,7 @@ function ActionsCell({ userId }: { userId: string }) {
         </MenuItem>
       </Menu>
 
-      {/* Confirmation Dialog */}
+      {/* Delete Confirmation Dialog */}
       <Dialog open={confirmOpen} onClose={handleConfirmClose}>
         <DialogTitle>Confirm deletion</DialogTitle>
         <DialogContent>
@@ -528,7 +655,7 @@ function ActionsCell({ userId }: { userId: string }) {
         </DialogActions>
       </Dialog>
 
-      {/* Success Snackbar */}
+      {/* Delete Success Snackbar */}
       <Snackbar
         open={deleteSuccess}
         autoHideDuration={2000}
@@ -537,7 +664,7 @@ function ActionsCell({ userId }: { userId: string }) {
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       />
 
-      {/* Error Snackbar */}
+      {/* Delete Error Snackbar */}
       <Snackbar
         open={deleteError}
         autoHideDuration={4000}
@@ -550,19 +677,53 @@ function ActionsCell({ userId }: { userId: string }) {
           },
         }}
       />
+
+      {/* Subscription Success Snackbar */}
+      <Snackbar
+        open={subscriptionSuccess}
+        autoHideDuration={2000}
+        onClose={() => setSubscriptionSuccess(false)}
+        message={subscriptionSuccessMessage}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      />
+
+      {/* Subscription Error Snackbar */}
+      <Snackbar
+        open={subscriptionError}
+        autoHideDuration={4000}
+        onClose={() => setSubscriptionError(false)}
+        message={errorMessage}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        ContentProps={{
+          sx: {
+            bgcolor: theme.palette.error.main,
+          },
+        }}
+      />
     </>
   );
 }
 
-const actionsCellRendererFactory = () => {
+const actionsCellRendererFactory = (
+  subscriptionGroupAction?: SubscriptionGroupAction,
+) => {
   return function ActionsCellRenderer({
     row,
   }: {
     row: { original: { id: string } };
   }) {
-    return <ActionsCell userId={row.original.id} />;
+    return (
+      <ActionsCell
+        userId={row.original.id}
+        subscriptionGroupAction={subscriptionGroupAction}
+      />
+    );
   };
 };
+
+// ============================================================================
+// Exports for URL handling
+// ============================================================================
 
 export const UsersTableParams = Type.Pick(GetUsersRequest, [
   "cursor",
@@ -581,8 +742,6 @@ export function usersTablePaginationHandler(router: NextRouter) {
       cursor: existingCursor,
       ...remainingParams
     } = router.query;
-    // existingDirection and existingCursor are intentionally not used here.
-    // We only care about the remainingParams to construct the new query.
 
     const newQuery: Record<string, string | string[] | undefined> = {
       ...remainingParams,
@@ -602,6 +761,15 @@ export function usersTablePaginationHandler(router: NextRouter) {
   return onUsersTablePaginate;
 }
 
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface SubscriptionGroupAction {
+  subscriptionGroupId: string;
+  type: "subscribe" | "unsubscribe";
+}
+
 interface Row {
   id: string;
   email: string;
@@ -609,6 +777,7 @@ interface Row {
     id: string;
     name: string;
   }[];
+  sortPropertyValue?: string | number | boolean | null;
 }
 
 export type OnPaginationChangeProps = Pick<
@@ -616,244 +785,171 @@ export type OnPaginationChangeProps = Pick<
   "direction" | "cursor"
 >;
 
+export interface OnSortChangeProps {
+  sortBy?: string | null;
+}
+
 export type UsersTableProps = Omit<GetUsersRequest, "workspaceId"> & {
   onPaginationChange?: (args: OnPaginationChangeProps) => void;
+  onSortChange?: (args: OnSortChangeProps) => void;
   autoReloadByDefault?: boolean;
   reloadPeriodMs?: number;
   userUriTemplate?: string;
   hideControls?: boolean;
+  negativeSegmentFilter?: string[];
+  // Optional name overrides for internal segments (segment ID -> display name)
+  segmentNameOverride?: Record<string, string>;
+  // Optional subscription group action for subscribe/unsubscribe functionality
+  subscriptionGroupAction?: SubscriptionGroupAction;
 };
 
-interface TableState {
-  autoReload: boolean;
-  users: Record<string, GetUsersResponseItem>;
-  usersCount: number | null;
-  currentPageUserIds: string[];
-  currentCursor: string | null;
-  previousCursor: string | null;
-  nextCursor: string | null;
-  query: {
-    cursor: string | null;
-    limit: number;
-    direction: CursorDirectionEnum | null;
-  };
-}
+// ============================================================================
+// Inner Table Component (uses the store)
+// ============================================================================
 
-export default function UsersTableV2({
+// Props used only for initial store state, not needed by the inner component
+type InitialStoreProps =
+  | "autoReloadByDefault"
+  | "cursor"
+  | "direction"
+  | "limit"
+  | "sortBy";
+
+type UsersTableInnerProps = Omit<UsersTableProps, InitialStoreProps>;
+
+function UsersTableInner({
   segmentFilter: segmentIds,
   subscriptionGroupFilter: subscriptionGroupIds,
-  direction,
-  cursor,
   onPaginationChange,
-  autoReloadByDefault = false,
+  onSortChange,
   reloadPeriodMs = 10000,
   userUriTemplate = "/users/{userId}",
-  limit,
   hideControls = false,
-}: UsersTableProps) {
+  segmentNameOverride,
+  subscriptionGroupAction,
+}: UsersTableInnerProps) {
   useAppStore();
-  const [userFilterState, userFilterUpdater] = useUserFilterState({
-    segments: segmentIds ? new Set(segmentIds) : undefined,
-    staticSegments: segmentIds ? new Set(segmentIds) : undefined,
-    subscriptionGroups: subscriptionGroupIds
-      ? new Set(subscriptionGroupIds)
-      : undefined,
-    staticSubscriptionGroups: subscriptionGroupIds
-      ? new Set(subscriptionGroupIds)
-      : undefined,
-  });
 
+  // Get store state and actions
+  const store = useUsersTableStore();
+  const {
+    autoReload,
+    users,
+    currentPageUserIds,
+    nextCursor,
+    previousCursor,
+    sortBy,
+    sortOrder,
+    usersCount,
+    segments,
+    negativeSegments,
+    subscriptionGroups,
+    negativeSubscriptionGroups,
+    userProperties,
+    staticSegments,
+    staticNegativeSegments,
+    staticSubscriptionGroups,
+    staticNegativeSubscriptionGroups,
+  } = store;
+
+  const {
+    goToNextPage,
+    goToPreviousPage,
+    goToFirstPage,
+    setSortBy,
+    setSortOrder,
+    setStaticSegments,
+    setStaticSubscriptionGroups,
+    addSegment,
+    removeSegment,
+    removeNegativeSegment,
+    addSubscriptionGroup,
+    removeSubscriptionGroup,
+    removeNegativeSubscriptionGroup,
+    addUserPropertyFilter,
+    removeUserPropertyFilter,
+    handleUsersResponse,
+    setUsersCount,
+    toggleAutoReload,
+    getQueryParams,
+    getFilterParams,
+  } = store;
+
+  // Sync static segments from props
   useEffect(() => {
-    userFilterUpdater((draft) => {
-      const oldStaticSegments = draft.staticSegments;
-      const newStaticSegments = new Set(segmentIds);
-      if (
-        deepEqual(Array.from(oldStaticSegments), Array.from(newStaticSegments))
-      ) {
-        return draft;
-      }
-
-      for (const segmentId of oldStaticSegments) {
-        draft.segments.delete(segmentId);
-        draft.staticSegments.delete(segmentId);
-      }
-
-      for (const segmentId of newStaticSegments) {
-        draft.segments.add(segmentId);
-        draft.staticSegments.add(segmentId);
-      }
-      return draft;
-    });
-  }, [segmentIds, userFilterUpdater]);
-
-  useEffect(() => {
-    userFilterUpdater((draft) => {
-      const oldStaticSubscriptionGroups = draft.staticSubscriptionGroups;
-      for (const subscriptionGroupId of oldStaticSubscriptionGroups) {
-        draft.subscriptionGroups.delete(subscriptionGroupId);
-        draft.staticSubscriptionGroups.delete(subscriptionGroupId);
-      }
-
-      const newStaticSubscriptionGroups = new Set(subscriptionGroupIds);
-      for (const subscriptionGroupId of newStaticSubscriptionGroups) {
-        draft.subscriptionGroups.add(subscriptionGroupId);
-        draft.staticSubscriptionGroups.add(subscriptionGroupId);
-      }
-    });
-  }, [subscriptionGroupIds, userFilterUpdater]);
-
-  const [state, setState] = useImmer<TableState>({
-    autoReload: autoReloadByDefault,
-    query: {
-      cursor: cursor ?? null,
-      direction: direction ?? null,
-      limit: limit ?? 10,
-    },
-    users: {},
-    currentPageUserIds: [],
-    currentCursor: cursor ?? null,
-    nextCursor: null,
-    previousCursor: null,
-    usersCount: null,
-  });
-
-  useUserFiltersHash(userFilterState);
-
-  const getCommonQueryParams = useCallback((): Omit<
-    GetUsersRequest,
-    "workspaceId" | "limit" | "cursor" | "direction"
-  > => {
-    const requestUserPropertyFilter: GetUsersUserPropertyFilter | undefined =
-      userFilterState.userProperties.size > 0
-        ? Array.from(userFilterState.userProperties).map((up) => ({
-            id: up[0],
-            values: Array.from(up[1]),
-          }))
-        : undefined;
-
-    const allFilterSegments = new Set<string>(userFilterState.segments);
     if (segmentIds) {
-      for (const segmentId of segmentIds) {
-        allFilterSegments.add(segmentId);
-      }
+      setStaticSegments(segmentIds);
     }
+  }, [segmentIds, setStaticSegments]);
 
-    const allFilterSubscriptionGroups = new Set<string>(
-      userFilterState.subscriptionGroups,
-    );
+  // Sync static subscription groups from props
+  useEffect(() => {
     if (subscriptionGroupIds) {
-      for (const subscriptionGroupId of subscriptionGroupIds) {
-        allFilterSubscriptionGroups.add(subscriptionGroupId);
-      }
+      setStaticSubscriptionGroups(subscriptionGroupIds);
     }
+  }, [subscriptionGroupIds, setStaticSubscriptionGroups]);
 
-    return {
-      segmentFilter:
-        allFilterSegments.size > 0 ? Array.from(allFilterSegments) : undefined,
-      subscriptionGroupFilter:
-        allFilterSubscriptionGroups.size > 0
-          ? Array.from(allFilterSubscriptionGroups)
-          : undefined,
-      userPropertyFilter: requestUserPropertyFilter,
-    };
-  }, [userFilterState, segmentIds, subscriptionGroupIds]);
-
-  const commonQueryListParams = useMemo(
-    () => getCommonQueryParams(),
-    [getCommonQueryParams],
-  );
-
-  const countQuery = useUsersCountQuery(commonQueryListParams, {
-    refetchInterval: state.autoReload ? reloadPeriodMs : false,
+  // Query for users list
+  const queryParams = getQueryParams();
+  const usersListQuery = useUsersQuery(queryParams, {
+    refetchInterval: autoReload ? reloadPeriodMs : false,
     placeholderData: keepPreviousData,
   });
 
-  const usersListQuery = useUsersQuery(
-    {
-      ...commonQueryListParams,
-      cursor: state.query.cursor ?? undefined,
-      direction: state.query.direction ?? undefined,
-      limit: state.query.limit,
-    },
-    {
-      refetchInterval: state.autoReload ? reloadPeriodMs : false,
-      placeholderData: keepPreviousData,
-    },
-  );
+  // Query for users count
+  const filterParams = getFilterParams();
+  const countQuery = useUsersCountQuery(filterParams, {
+    refetchInterval: autoReload ? reloadPeriodMs : false,
+    placeholderData: keepPreviousData,
+  });
 
+  // Query for user property names
+  const userPropertiesQuery = useUserPropertyResourcesQuery();
+
+  // Handle users list response
   useEffect(() => {
     if (usersListQuery.data) {
-      const result = usersListQuery.data;
-      if (
-        result.users.length < state.query.limit &&
-        state.query.direction === CursorDirectionEnum.Before
-      ) {
-        setState((draft) => {
-          draft.nextCursor = null;
-          draft.previousCursor = null;
-          draft.query.cursor = null;
-          draft.query.direction = null;
-          draft.currentCursor = null;
-        });
-        onPaginationChange?.({});
-      } else if (
-        result.users.length === 0 &&
-        state.query.direction === CursorDirectionEnum.After
-      ) {
-        // Rollback to the last cursor if the next page is empty.
-        setState((draft) => {
-          draft.query.cursor = state.currentCursor;
-        });
-        onPaginationChange?.({
-          cursor: state.currentCursor ?? undefined,
-        });
-      } else {
-        setState((draft) => {
-          const newUsersMap: Record<string, GetUsersResponseItem> = {};
-          result.users.forEach((user: GetUsersResponseItem) => {
-            newUsersMap[user.id] = user;
-          });
-          draft.users = newUsersMap;
-          draft.currentPageUserIds = result.users.map(
-            (u: GetUsersResponseItem) => u.id,
-          );
-          draft.nextCursor = result.nextCursor ?? null;
-          draft.previousCursor = result.previousCursor ?? null;
-          draft.currentCursor = state.query.cursor ?? null;
-        });
-      }
+      handleUsersResponse(usersListQuery.data);
     }
-  }, [
-    usersListQuery.data,
-    setState,
-    onPaginationChange,
-    cursor,
-    state.query.direction,
-    state.query.cursor,
-    state.currentCursor,
-  ]);
+  }, [usersListQuery.data, handleUsersResponse]);
 
+  // Handle users count response
   useEffect(() => {
     if (countQuery.data !== undefined) {
-      setState((draft) => {
-        draft.usersCount = countQuery.data;
-      });
+      setUsersCount(countQuery.data);
     }
-  }, [countQuery.data, setState]);
+  }, [countQuery.data, setUsersCount]);
 
+  // Get the name of the current sort property
+  const sortPropertyName = useMemo(() => {
+    if (!sortBy || sortBy === "id") {
+      return null;
+    }
+    const properties = userPropertiesQuery.data?.userProperties ?? [];
+    const found = properties.find((p) => p.id === sortBy);
+    return found?.name ?? null;
+  }, [sortBy, userPropertiesQuery.data]);
+
+  // Transform store data to table rows
   const usersData = useMemo<Row[]>(() => {
-    return state.currentPageUserIds.flatMap((id) => {
-      const user = state.users[id];
+    return currentPageUserIds.flatMap((id) => {
+      const user = users[id];
       if (!user) {
         return [];
       }
 
       let email = "";
+      let sortPropertyValue: string | number | boolean | null | undefined;
+
       for (const propId in user.properties) {
         const prop = user.properties[propId];
         if (prop && prop.name.toLowerCase() === "email") {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
           email = prop.value as string;
-          break;
+        }
+        if (sortBy && propId === sortBy && prop) {
+          // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+          sortPropertyValue = prop.value as string | number | boolean | null;
         }
       }
 
@@ -862,23 +958,39 @@ export default function UsersTableV2({
           id: user.id,
           email,
           segments: user.segments,
+          sortPropertyValue,
         },
       ];
     });
-  }, [state.currentPageUserIds, state.users]);
+  }, [currentPageUserIds, users, sortBy]);
 
   const actionsCellRenderer = useMemo(() => {
-    return actionsCellRendererFactory();
-  }, []);
+    return actionsCellRendererFactory(subscriptionGroupAction);
+  }, [subscriptionGroupAction]);
 
-  const columns = useMemo<ColumnDef<Row>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<Row>[]>(() => {
+    const baseColumns: ColumnDef<Row>[] = [
       {
         id: "id",
         header: "User ID",
         accessorKey: "id",
         cell: (info) => userIdCellRenderer({ ...info, userUriTemplate }),
       },
+    ];
+
+    // Add sort property column second (after User ID) if sorting by a user property
+    // Skip if sorting by email since we already have an email column
+    const isEmailSort = sortPropertyName?.toLowerCase() === "email";
+    if (sortPropertyName && sortBy && sortBy !== "id" && !isEmailSort) {
+      baseColumns.push({
+        id: "sortProperty",
+        header: sortPropertyName,
+        accessorKey: "sortPropertyValue",
+        cell: sortPropertyCellRenderer,
+      });
+    }
+
+    baseColumns.push(
       {
         id: "email",
         header: "Email",
@@ -897,9 +1009,10 @@ export default function UsersTableV2({
         size: 70,
         cell: actionsCellRenderer,
       },
-    ],
-    [userUriTemplate, actionsCellRenderer],
-  );
+    );
+
+    return baseColumns;
+  }, [userUriTemplate, actionsCellRenderer, sortPropertyName, sortBy]);
 
   const table = useReactTable({
     columns,
@@ -908,55 +1021,52 @@ export default function UsersTableV2({
     getCoreRowModel: getCoreRowModel(),
   });
 
-  const onNextPage = useCallback(() => {
-    if (state.nextCursor) {
-      onPaginationChange?.({
-        cursor: state.nextCursor,
-        direction: CursorDirectionEnum.After,
-      });
-      setState((draft) => {
-        draft.query.cursor = state.nextCursor;
-        draft.query.direction = CursorDirectionEnum.After;
-      });
-    }
-  }, [state.nextCursor, onPaginationChange, setState]);
-
-  const onPreviousPage = useCallback(() => {
-    if (state.previousCursor) {
-      setState((draft) => {
-        if (draft.query.direction === CursorDirectionEnum.Before) {
-          draft.query.cursor = state.previousCursor;
-        } else if (draft.query.direction === CursorDirectionEnum.After) {
-          draft.query.direction = CursorDirectionEnum.Before;
-        }
-        onPaginationChange?.({
-          cursor: draft.query.cursor ?? undefined,
-          direction: draft.query.direction ?? undefined,
-        });
-      });
-    }
-  }, [state.previousCursor, onPaginationChange, setState]);
-
-  const onFirstPage = useCallback(() => {
-    onPaginationChange?.({});
-    setState((draft) => {
-      draft.query.cursor = null;
-      draft.query.direction = null;
+  // Pagination handlers that also notify parent
+  const handleNextPage = useCallback(() => {
+    goToNextPage();
+    onPaginationChange?.({
+      cursor: nextCursor ?? undefined,
+      direction: CursorDirectionEnum.After,
     });
-  }, [onPaginationChange, setState]);
+  }, [goToNextPage, nextCursor, onPaginationChange]);
+
+  const handlePreviousPage = useCallback(() => {
+    goToPreviousPage();
+    onPaginationChange?.({
+      cursor: previousCursor ?? undefined,
+      direction: CursorDirectionEnum.Before,
+    });
+  }, [goToPreviousPage, previousCursor, onPaginationChange]);
+
+  const handleFirstPage = useCallback(() => {
+    goToFirstPage();
+    onPaginationChange?.({});
+  }, [goToFirstPage, onPaginationChange]);
 
   const handleRefresh = useCallback(() => {
     usersListQuery.refetch();
     countQuery.refetch();
   }, [usersListQuery, countQuery]);
 
-  const toggleAutoRefresh = useCallback(() => {
-    setState((draft) => {
-      draft.autoReload = !draft.autoReload;
-    });
-  }, [setState]);
+  const handleSortChange = useCallback(
+    (newSortBy: string | null) => {
+      setSortBy(newSortBy);
+      onSortChange?.({ sortBy: newSortBy });
+      onPaginationChange?.({});
+    },
+    [setSortBy, onSortChange, onPaginationChange],
+  );
+
+  const handleSortOrderChange = useCallback(
+    (newSortOrder: SortOrderEnum) => {
+      setSortOrder(newSortOrder);
+      onPaginationChange?.({});
+    },
+    [setSortOrder, onPaginationChange],
+  );
 
   const isLoading = usersListQuery.isPending || usersListQuery.isFetching;
+
   let controls: React.ReactNode = null;
   if (!hideControls) {
     controls = (
@@ -966,7 +1076,32 @@ export default function UsersTableV2({
         spacing={1}
         sx={{ width: "100%", height: "48px" }}
       >
-        <UsersFilterV2 state={userFilterState} updater={userFilterUpdater} />
+        <UsersFilterV2
+          userProperties={userProperties}
+          segments={segments}
+          staticSegments={staticSegments}
+          negativeSegments={negativeSegments}
+          staticNegativeSegments={staticNegativeSegments}
+          subscriptionGroups={subscriptionGroups}
+          staticSubscriptionGroups={staticSubscriptionGroups}
+          negativeSubscriptionGroups={negativeSubscriptionGroups}
+          staticNegativeSubscriptionGroups={staticNegativeSubscriptionGroups}
+          segmentNameOverride={segmentNameOverride}
+          onRemoveSegment={removeSegment}
+          onRemoveNegativeSegment={removeNegativeSegment}
+          onRemoveSubscriptionGroup={removeSubscriptionGroup}
+          onRemoveNegativeSubscriptionGroup={removeNegativeSubscriptionGroup}
+          onRemoveUserProperty={removeUserPropertyFilter}
+          onAddSegment={addSegment}
+          onAddSubscriptionGroup={addSubscriptionGroup}
+          onAddUserProperty={addUserPropertyFilter}
+        />
+        <SortBySelector
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSortByChange={handleSortChange}
+          onSortOrderChange={handleSortOrderChange}
+        />
         <Box flex={1} />
         <Tooltip title="Refresh Results" placement="bottom-start">
           <IconButton
@@ -984,14 +1119,14 @@ export default function UsersTableV2({
           placement="bottom-start"
         >
           <IconButton
-            onClick={toggleAutoRefresh}
+            onClick={toggleAutoReload}
             sx={{
               border: "1px solid",
               borderColor: "grey.400",
-              bgcolor: state.autoReload ? "grey.600" : "inherit",
-              color: state.autoReload ? "white" : "inherit",
+              bgcolor: autoReload ? "grey.600" : "inherit",
+              color: autoReload ? "white" : "inherit",
               "&:hover": {
-                bgcolor: state.autoReload ? "grey.700" : undefined,
+                bgcolor: autoReload ? "grey.700" : undefined,
               },
             }}
           >
@@ -1075,22 +1210,22 @@ export default function UsersTableV2({
                 >
                   <Stack direction="row" alignItems="center" spacing={2}>
                     <GreyButton
-                      onClick={onFirstPage}
-                      disabled={!state.previousCursor}
+                      onClick={handleFirstPage}
+                      disabled={!previousCursor}
                       startIcon={<KeyboardDoubleArrowLeft />}
                     >
                       First
                     </GreyButton>
                     <GreyButton
-                      onClick={onPreviousPage}
-                      disabled={!state.previousCursor}
+                      onClick={handlePreviousPage}
+                      disabled={!previousCursor}
                       startIcon={<KeyboardArrowLeft />}
                     >
                       Previous
                     </GreyButton>
                     <GreyButton
-                      onClick={onNextPage}
-                      disabled={!state.nextCursor}
+                      onClick={handleNextPage}
+                      disabled={!nextCursor}
                       endIcon={<KeyboardArrowRight />}
                     >
                       Next
@@ -1118,8 +1253,7 @@ export default function UsersTableV2({
                             height: "100%",
                           }}
                         >
-                          Total users:{" "}
-                          {countQuery.data ?? state.usersCount ?? 0}
+                          Total users: {countQuery.data ?? usersCount ?? 0}
                         </Typography>
                       </Stack>
                     )}
@@ -1131,5 +1265,50 @@ export default function UsersTableV2({
         </Table>
       </TableContainer>
     </Stack>
+  );
+}
+
+// ============================================================================
+// Main Component (wraps inner with store provider)
+// ============================================================================
+
+export default function UsersTableV2({
+  segmentFilter,
+  subscriptionGroupFilter,
+  negativeSegmentFilter,
+  negativeSubscriptionGroupFilter,
+  unsubscribedFromFilter,
+  cursor,
+  direction,
+  sortBy,
+  limit,
+  autoReloadByDefault,
+  ...innerProps
+}: UsersTableProps) {
+  // Create a stable store instance that captures initial props
+  const [store] = useState(() => {
+    const initialState: UsersTableStoreInitialState = {
+      staticSegmentIds: segmentFilter,
+      staticSubscriptionGroupIds: subscriptionGroupFilter,
+      negativeSegmentIds: negativeSegmentFilter,
+      negativeSubscriptionGroupIds: negativeSubscriptionGroupFilter,
+      unsubscribedFromSubscriptionGroupIds: unsubscribedFromFilter,
+      cursor: cursor ?? undefined,
+      direction: direction ?? undefined,
+      sortBy: sortBy ?? undefined,
+      limit: limit ?? 10,
+      autoReloadByDefault: autoReloadByDefault ?? false,
+    };
+    return createUsersTableStore(initialState);
+  });
+
+  return (
+    <UsersTableStoreContext.Provider value={store}>
+      <UsersTableInner
+        segmentFilter={segmentFilter}
+        subscriptionGroupFilter={subscriptionGroupFilter}
+        {...innerProps}
+      />
+    </UsersTableStoreContext.Provider>
   );
 }

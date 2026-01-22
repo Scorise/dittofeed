@@ -1,16 +1,17 @@
+import csvParser from "csv-parser";
 import { and, eq, inArray, SQL } from "drizzle-orm";
-import {
-  SecretNames,
-  SUBSCRIPTION_MANAGEMENT_PAGE,
-} from "isomorphic-lib/src/constants";
+import { SecretNames } from "isomorphic-lib/src/constants";
 import { unwrap } from "isomorphic-lib/src/resultHandling/resultUtils";
+import { schemaValidate } from "isomorphic-lib/src/resultHandling/schemaValidation";
 import { err, ok, Result } from "neverthrow";
 import path from "path";
 import { PostgresError } from "pg-error-enum";
 import * as R from "remeda";
+import { Readable } from "stream";
 import { URL } from "url";
 import { v4 as uuid, validate as validateUuid } from "uuid";
 
+import { submitBatch } from "./apps/batch";
 import config from "./config";
 import { generateSecureHash, generateSecureKey } from "./crypto";
 import {
@@ -28,17 +29,18 @@ import {
 } from "./db/schema";
 import logger from "./logger";
 import {
-  findAllSegmentAssignments,
   findAllSegmentAssignmentsByIdsForUsers,
   insertSegmentAssignments,
   SegmentBulkUpsertItem,
 } from "./segments";
 import {
+  BatchItem,
   EventType,
   GetUserSubscriptionsRequest,
   InternalEventType,
+  ProcessSubscriptionGroupCsvError,
+  ProcessSubscriptionGroupCsvErrorType,
   SavedSubscriptionGroupResource,
-  Segment,
   SegmentDefinition,
   SegmentNodeType,
   SubscriptionChange,
@@ -53,8 +55,14 @@ import {
   UserSubscriptionLookup,
   UserSubscriptionResource,
   UserSubscriptionsUpdate,
+  UserUploadRow,
+  UserUploadRowErrors,
 } from "./types";
-import { InsertUserEvent, insertUserEvents } from "./userEvents";
+import {
+  findUserIdsByUserProperty,
+  InsertUserEvent,
+  insertUserEvents,
+} from "./userEvents";
 import { findUserIdsByUserPropertyValue } from "./userProperties";
 
 export type SubscriptionGroupWithAssignment = Pick<
@@ -103,77 +111,94 @@ export function getSubscriptionGroupDetails(
   };
 }
 
-export async function getSubscriptionGroupWithAssignments({
-  subscriptionGroupId,
+export async function getSubscriptionGroupsWithAssignments({
+  workspaceId,
+  subscriptionGroupIds: subscriptionGroupIdsUnsafe,
   userIds,
 }: {
-  subscriptionGroupId: string;
+  workspaceId: string;
+  subscriptionGroupIds?: string[];
   userIds: string[];
 }): Promise<SubscriptionGroupWithAssignment[]> {
-  if (!validateUuid(subscriptionGroupId)) {
-    return [];
-  }
+  const subscriptionGroupIds = subscriptionGroupIdsUnsafe?.filter((id) =>
+    validateUuid(id),
+  );
 
   if (userIds.length === 0) {
     return [];
   }
-
-  const sg = await db().query.subscriptionGroup.findFirst({
-    where: eq(dbSubscriptionGroup.id, subscriptionGroupId),
+  const subscriptionGroups = await db().query.subscriptionGroup.findMany({
+    where: and(
+      eq(dbSubscriptionGroup.workspaceId, workspaceId),
+      subscriptionGroupIds
+        ? inArray(dbSubscriptionGroup.id, subscriptionGroupIds)
+        : undefined,
+    ),
     with: {
       segments: true,
     },
   });
 
-  if (!sg?.segments[0]) {
-    logger().error(
-      {
-        workspaceId: sg?.workspaceId,
-        subscriptionGroupId,
-        userIds,
-      },
-      "No segment found for subscription group",
-    );
-    return [];
-  }
-
-  const segmentId = sg.segments[0].id;
-
+  const segmentIds = subscriptionGroups.flatMap((sg) =>
+    sg.segments.map((s) => s.id),
+  );
   // Use the efficient batch version
   const assignmentsByUser = await findAllSegmentAssignmentsByIdsForUsers({
-    workspaceId: sg.workspaceId,
-    segmentIds: [segmentId],
+    workspaceId,
+    segmentIds,
     userIds,
   });
 
-  return userIds.map((userId) => {
-    const assignments = assignmentsByUser[userId] || [];
-    const value = assignments[0]?.inSegment ?? null;
-    return {
-      ...sg,
-      userId,
-      segmentId,
-      value,
-    };
+  return subscriptionGroups.flatMap((sg) => {
+    const segmentId = sg.segments[0]?.id;
+    if (!segmentId) {
+      logger().error(
+        {
+          workspaceId,
+          subscriptionGroupId: sg.id,
+          userIds,
+        },
+        "No segment found for subscription group",
+      );
+      return [];
+    }
+    return userIds.map((userId) => {
+      const assignments = assignmentsByUser[userId] ?? [];
+      const assignment = assignments.find((a) => a.segmentId === segmentId);
+      const value = assignment?.inSegment ?? null;
+      return {
+        ...sg,
+        userId,
+        segmentId,
+        value,
+      };
+    });
   });
 }
 
 export async function getSubscriptionGroupWithAssignment({
   subscriptionGroupId,
+  workspaceId,
   userId,
 }: {
   subscriptionGroupId: string;
+  workspaceId: string;
   userId: string;
 }): Promise<SubscriptionGroupWithAssignment | null> {
-  const results = await getSubscriptionGroupWithAssignments({
-    subscriptionGroupId,
+  const results = await getSubscriptionGroupsWithAssignments({
+    workspaceId,
+    subscriptionGroupIds: [subscriptionGroupId],
     userIds: [userId],
   });
-  return results[0] || null;
+  return results[0] ?? null;
 }
 
 export function getSubscriptionGroupSegmentName(id: string) {
   return `subscriptionGroup-${id}`;
+}
+
+export function getSubscriptionGroupUnsubscribedSegmentName(id: string) {
+  return `subscriptionGroup-unsubscribed-${id}`;
 }
 
 function mapUpsertValidationError(
@@ -204,9 +229,13 @@ export async function upsertSubscriptionGroup({
   type,
   workspaceId,
   channel,
-}: UpsertSubscriptionGroupResource): Promise<
-  Result<SubscriptionGroup, SubscriptionGroupUpsertValidationError>
-> {
+  createdAt,
+  updatedAt,
+}: UpsertSubscriptionGroupResource & {
+  // dates are used for deterministic testing
+  createdAt?: Date;
+  updatedAt?: Date;
+}): Promise<Result<SubscriptionGroup, SubscriptionGroupUpsertValidationError>> {
   if (id && !validateUuid(id)) {
     return err({
       type: SubscriptionGroupUpsertValidationErrorType.IdError,
@@ -249,6 +278,8 @@ export async function upsertSubscriptionGroup({
             name,
             type,
             channel,
+            createdAt,
+            updatedAt,
           })
           .returning(),
       );
@@ -275,6 +306,8 @@ export async function upsertSubscriptionGroup({
             name,
             type,
             channel,
+            createdAt,
+            updatedAt,
           })
           .where(and(...conditions))
           .returning(),
@@ -315,11 +348,48 @@ export async function upsertSubscriptionGroup({
         definition: segmentDefinition,
         subscriptionGroupId: subscriptionGroup.id,
         resourceType: "Internal",
+        createdAt,
+        updatedAt,
       },
       target: [dbSegment.workspaceId, dbSegment.name],
       set: {
         name: segmentName,
         definition: segmentDefinition,
+        createdAt,
+        updatedAt,
+      },
+      tx,
+    }).then(unwrap);
+
+    // Create the unsubscribed segment
+    const unsubscribedSegmentName = getSubscriptionGroupUnsubscribedSegmentName(
+      subscriptionGroup.id,
+    );
+    const unsubscribedSegmentDefinition: SegmentDefinition = {
+      entryNode: {
+        type: SegmentNodeType.SubscriptionGroupUnsubscribed,
+        id: "1",
+        subscriptionGroupId: subscriptionGroup.id,
+      },
+      nodes: [],
+    };
+    await upsert({
+      table: dbSegment,
+      values: {
+        name: unsubscribedSegmentName,
+        workspaceId,
+        definition: unsubscribedSegmentDefinition,
+        subscriptionGroupId: subscriptionGroup.id,
+        resourceType: "Internal",
+        createdAt,
+        updatedAt,
+      },
+      target: [dbSegment.workspaceId, dbSegment.name],
+      set: {
+        name: unsubscribedSegmentName,
+        definition: unsubscribedSegmentDefinition,
+        createdAt,
+        updatedAt,
       },
       tx,
     }).then(unwrap);
@@ -426,8 +496,8 @@ export function generateSubscriptionChangeUrl({
   if (showAllChannels) {
     params.showAllChannels = "true";
   }
-  const url = new URL(config().dashboardUrl);
-  url.pathname = path.join("/dashboard", SUBSCRIPTION_MANAGEMENT_PAGE);
+  const url = new URL(config().apiBase);
+  url.pathname = "/api/public/subscription-management/page";
   url.search = new URLSearchParams(params).toString();
   const urlString = url.toString();
   logger().debug(
@@ -501,45 +571,21 @@ export async function getUserSubscriptions({
   workspaceId,
   userId,
 }: GetUserSubscriptionsRequest): Promise<UserSubscriptionResource[]> {
-  const subscriptionGroups = await db().query.subscriptionGroup.findMany({
-    where: eq(dbSubscriptionGroup.workspaceId, workspaceId),
-    orderBy: (sg, { asc }) => [asc(sg.name)],
-    with: {
-      segments: true,
-    },
-  });
-  const segmentIds = subscriptionGroups.flatMap((sg) =>
-    sg.segments.map((s) => s.id),
-  );
-  const assignments = await findAllSegmentAssignments({
+  const groupWithAssignments = await getSubscriptionGroupsWithAssignments({
     workspaceId,
-    userId,
-    segmentIds,
+    userIds: [userId],
   });
-  const subscriptions: UserSubscriptionResource[] = [];
+  return groupWithAssignments.map((sg) => {
+    const details = getSubscriptionGroupDetails(sg);
+    const isSubscribed = inSubscriptionGroup(details);
 
-  for (const subscriptionGroup of subscriptionGroups) {
-    const segment = subscriptionGroup.segments[0];
-    if (!segment) {
-      logger().error(
-        { subscriptionGroup },
-        "No segment found for subscription group",
-      );
-      continue;
-    }
-    const inSegment = assignments[segment.id] === true;
-
-    const { id, name, channel } = subscriptionGroup;
-
-    subscriptions.push({
-      id,
-      name,
-      isSubscribed: inSegment,
-      channel,
-    });
-  }
-
-  return subscriptions;
+    return {
+      name: sg.name,
+      id: sg.id,
+      channel: sg.channel,
+      isSubscribed,
+    };
+  });
 }
 
 /**
@@ -639,18 +685,47 @@ export async function updateUserSubscriptions({
     ),
   });
 
-  const segmentBySubscriptionGroupId = segments.reduce<Record<string, Segment>>(
-    (acc, segment) => {
-      if (!segment.subscriptionGroupId) {
-        return acc;
-      }
+  // Store both main and unsubscribed segments per subscription group
+  interface SegmentPair {
+    mainSegmentId?: string;
+    unsubscribedSegmentId?: string;
+  }
+
+  const segmentsBySubscriptionGroupId = segments.reduce<
+    Record<string, SegmentPair>
+  >((acc, segment) => {
+    if (!segment.subscriptionGroupId) {
+      return acc;
+    }
+
+    const existingPair = acc[segment.subscriptionGroupId] ?? {};
+    const mainSegmentName = getSubscriptionGroupSegmentName(
+      segment.subscriptionGroupId,
+    );
+    const unsubscribedSegmentName = getSubscriptionGroupUnsubscribedSegmentName(
+      segment.subscriptionGroupId,
+    );
+
+    if (segment.name === mainSegmentName) {
       return {
         ...acc,
-        [segment.subscriptionGroupId]: segment,
+        [segment.subscriptionGroupId]: {
+          ...existingPair,
+          mainSegmentId: segment.id,
+        },
       };
-    },
-    {},
-  );
+    }
+    if (segment.name === unsubscribedSegmentName) {
+      return {
+        ...acc,
+        [segment.subscriptionGroupId]: {
+          ...existingPair,
+          unsubscribedSegmentId: segment.id,
+        },
+      };
+    }
+    return acc;
+  }, {});
 
   const allUserEvents = userUpdates.flatMap(({ userId, changes }) => {
     const userChangePairs = R.entries(changes);
@@ -670,18 +745,34 @@ export async function updateUserSubscriptions({
     ({ userId, changes }) => {
       const changePairs = R.entries(changes);
       return changePairs.flatMap(([subscriptionGroupId, isSubscribed]) => {
-        const segment = segmentBySubscriptionGroupId[subscriptionGroupId];
-        if (!segment) {
+        const segmentPair = segmentsBySubscriptionGroupId[subscriptionGroupId];
+        if (!segmentPair) {
           return [];
         }
-        return [
-          {
+
+        const assignments: SegmentBulkUpsertItem[] = [];
+
+        // Main segment: inSegment = isSubscribed
+        if (segmentPair.mainSegmentId) {
+          assignments.push({
             workspaceId,
             userId,
-            segmentId: segment.id,
+            segmentId: segmentPair.mainSegmentId,
             inSegment: isSubscribed,
-          },
-        ];
+          });
+        }
+
+        // Unsubscribed segment: inSegment = !isSubscribed
+        if (segmentPair.unsubscribedSegmentId) {
+          assignments.push({
+            workspaceId,
+            userId,
+            segmentId: segmentPair.unsubscribedSegmentId,
+            inSegment: !isSubscribed,
+          });
+        }
+
+        return assignments;
       });
     },
   );
@@ -713,4 +804,181 @@ export async function upsertSubscriptionSecret({
       value: generateSecureKey(8),
     },
   }).then(unwrap);
+}
+
+export type SubscriptionGroupCsvParseResult = Result<
+  UserUploadRow[],
+  ProcessSubscriptionGroupCsvError
+>;
+
+export async function parseSubscriptionGroupCsv(
+  csvStream: Readable,
+): Promise<SubscriptionGroupCsvParseResult> {
+  return new Promise<SubscriptionGroupCsvParseResult>((resolve) => {
+    const parsingErrors: UserUploadRowErrors[] = [];
+    const uploadedRows: UserUploadRow[] = [];
+
+    let i = 0;
+    csvStream
+      .pipe(csvParser())
+      .on("headers", (headers: string[]) => {
+        if (!headers.includes("id") && !headers.includes("email")) {
+          resolve(
+            err({
+              type: ProcessSubscriptionGroupCsvErrorType.MissingHeaders,
+              message: 'csv must have "id" or "email" headers',
+            }),
+          );
+          csvStream.destroy();
+        }
+      })
+      .on("data", (row: unknown) => {
+        if (row instanceof Object && Object.keys(row).length === 0) {
+          return;
+        }
+        const parsed = schemaValidate(row, UserUploadRow);
+        const rowNumber = i;
+        i += 1;
+
+        if (parsed.isErr()) {
+          const errors = {
+            row: rowNumber,
+            error: 'row must have a non-empty "email" or "id" field',
+          };
+          parsingErrors.push(errors);
+          return;
+        }
+
+        const { value } = parsed;
+        if ((value.email?.length ?? 0) === 0 && (value.id?.length ?? 0) === 0) {
+          const errors = {
+            row: rowNumber,
+            error: 'row must have a non-empty "email" or "id" field',
+          };
+          parsingErrors.push(errors);
+          return;
+        }
+
+        uploadedRows.push(parsed.value);
+      })
+      .on("end", () => {
+        logger().debug(`Parsed ${uploadedRows.length} rows`);
+        if (parsingErrors.length) {
+          resolve(
+            err({
+              type: ProcessSubscriptionGroupCsvErrorType.RowValidationErrors,
+              message: "csv rows contained errors",
+              rowErrors: parsingErrors,
+            }),
+          );
+        } else {
+          resolve(ok(uploadedRows));
+        }
+      })
+      .on("error", (error) => {
+        resolve(
+          err({
+            type: ProcessSubscriptionGroupCsvErrorType.ParseError,
+            message: `misformatted file: ${error.message}`,
+          }),
+        );
+      });
+  });
+}
+
+export interface ProcessSubscriptionGroupCsvRequest {
+  csvStream: Readable;
+  workspaceId: string;
+  subscriptionGroupId: string;
+}
+
+export async function processSubscriptionGroupCsv({
+  csvStream,
+  workspaceId,
+  subscriptionGroupId,
+}: ProcessSubscriptionGroupCsvRequest): Promise<
+  Result<void, ProcessSubscriptionGroupCsvError>
+> {
+  const rows = await parseSubscriptionGroupCsv(csvStream);
+  if (rows.isErr()) {
+    return err(rows.error);
+  }
+
+  const emailsWithoutIds: Set<string> = new Set<string>();
+
+  for (const row of rows.value) {
+    if (row.email && !row.id) {
+      emailsWithoutIds.add(row.email);
+    }
+  }
+
+  const missingUserIdsByEmail = await findUserIdsByUserProperty({
+    userPropertyName: "email",
+    workspaceId,
+    valueSet: emailsWithoutIds,
+  });
+
+  const batch: BatchItem[] = [];
+  const currentTime = new Date();
+  const timestamp = currentTime.toISOString();
+
+  for (const row of rows.value) {
+    const userIds = missingUserIdsByEmail[row.email];
+    const userId =
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      (row.id as string | undefined) ?? (userIds?.length ? userIds[0] : uuid());
+
+    if (!userId) {
+      continue;
+    }
+
+    // Handle action column
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    const actionValue = (row as Record<string, string>).action;
+    let subscriptionAction = SubscriptionChange.Subscribe; // default to subscribe
+
+    if (actionValue !== undefined && actionValue !== "") {
+      if (actionValue === "subscribe") {
+        subscriptionAction = SubscriptionChange.Subscribe;
+      } else if (actionValue === "unsubscribe") {
+        subscriptionAction = SubscriptionChange.Unsubscribe;
+      } else {
+        return err({
+          type: ProcessSubscriptionGroupCsvErrorType.InvalidActionValue,
+          message: `Invalid action value: "${actionValue}". Must be "subscribe" or "unsubscribe".`,
+          actionValue,
+        });
+      }
+    }
+
+    const identifyEvent: BatchItem = {
+      type: EventType.Identify,
+      userId,
+      messageId: uuid(),
+      timestamp,
+      traits: R.omit(row, ["id", "action"]),
+    };
+
+    const trackEvent: BatchItem = {
+      type: EventType.Track,
+      userId,
+      messageId: uuid(),
+      timestamp,
+      event: InternalEventType.SubscriptionChange,
+      properties: {
+        subscriptionId: subscriptionGroupId,
+        action: subscriptionAction,
+      },
+    };
+
+    batch.push(trackEvent);
+    batch.push(identifyEvent);
+  }
+
+  await submitBatch({
+    workspaceId,
+    data: { batch },
+  });
+
+  return ok(undefined);
 }

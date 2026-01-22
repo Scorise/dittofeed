@@ -52,6 +52,7 @@ import {
   SubscriptionChange,
   SubscriptionGroupSegmentNode,
   SubscriptionGroupType,
+  SubscriptionGroupUnsubscribedSegmentNode,
   UserPropertyDefinitionType,
   UserPropertyOperatorType,
 } from "../types";
@@ -136,15 +137,6 @@ function shouldResetComputedProperty({
   now: number;
   periodBound?: number;
 }): boolean {
-  // logger().debug(
-  //   {
-  //     notDefinitionUpdatedAt: !definitionUpdatedAt,
-  //     definitionUpdatedInPeriod: definitionUpdatedAt <= now,
-  //     definitionUpdatedAfterCreated: definitionUpdatedAt > createdAt,
-  //     definitionUpdatedAt >= (periodBound ?? 0)
-  //   },
-  //   "loc2",
-  // );
   if (!definitionUpdatedAt) {
     return false;
   }
@@ -330,6 +322,34 @@ function subscriptionChangeToPerformed(
   };
 }
 
+function subscriptionGroupUnsubscribedToPerformed(
+  node: SubscriptionGroupUnsubscribedSegmentNode,
+): LastPerformedSegmentNode {
+  return {
+    id: node.id,
+    type: SegmentNodeType.LastPerformed,
+    event: InternalEventType.SubscriptionChange,
+    whereProperties: [
+      {
+        path: "subscriptionId",
+        operator: {
+          type: SegmentOperatorType.Equals,
+          value: node.subscriptionGroupId,
+        },
+      },
+    ],
+    hasProperties: [
+      {
+        path: "action",
+        operator: {
+          type: SegmentOperatorType.Equals,
+          value: SubscriptionChange.Unsubscribe,
+        },
+      },
+    ],
+  };
+}
+
 interface FullSubQueryData {
   condition: string;
   type: "user_property" | "segment";
@@ -349,7 +369,7 @@ function getSegmentNodeVersion(
   segment: SavedSegmentResource,
   nodeId: string,
 ): number | null {
-  const definition = segment.definition;
+  const { definition } = segment;
   if (!definition) {
     return null;
   }
@@ -1362,6 +1382,19 @@ function segmentToResolvedState({
         qb,
       });
     }
+    case SegmentNodeType.SubscriptionGroupUnsubscribed: {
+      const performedNode = subscriptionGroupUnsubscribedToPerformed(node);
+      return segmentToResolvedState({
+        node: performedNode,
+        segment,
+        now,
+        periodBound,
+        workspaceId,
+        idUserProperty,
+        prunedComputedProperties,
+        qb,
+      });
+    }
     case SegmentNodeType.LastPerformed: {
       const varName = qb.getVariableName();
       const hasPropertyConditions =
@@ -1673,6 +1706,14 @@ function resolvedSegmentToAssignment({
     }
     case SegmentNodeType.SubscriptionGroup: {
       const performedNode = subscriptionChangeToPerformed(node);
+      return resolvedSegmentToAssignment({
+        node: performedNode,
+        segment,
+        qb,
+      });
+    }
+    case SegmentNodeType.SubscriptionGroupUnsubscribed: {
+      const performedNode = subscriptionGroupUnsubscribedToPerformed(node);
       return resolvedSegmentToAssignment({
         node: performedNode,
         segment,
@@ -2074,6 +2115,15 @@ export function segmentNodeToStateSubQuery({
     case SegmentNodeType.SubscriptionGroup: {
       const performedNode: LastPerformedSegmentNode =
         subscriptionChangeToPerformed(node);
+      return segmentNodeToStateSubQuery({
+        node: performedNode,
+        segment,
+        qb,
+      });
+    }
+    case SegmentNodeType.SubscriptionGroupUnsubscribed: {
+      const performedNode: LastPerformedSegmentNode =
+        subscriptionGroupUnsubscribedToPerformed(node);
       return segmentNodeToStateSubQuery({
         node: performedNode,
         segment,
@@ -3129,47 +3179,75 @@ export async function computeState({
   });
 }
 
+interface AssignmentQuery {
+  query: string;
+  computedPropertyId: string;
+  computedPropertyType: "segment" | "user_property";
+}
+
 interface AssignmentQueryGroup {
-  queries: (string | string[])[];
+  queries: (AssignmentQuery | AssignmentQuery[])[];
   qb: ClickHouseQueryBuilder;
 }
 
-async function execAssignmentQueryGroup(
-  group: AssignmentQueryGroup,
-  clickhouseClient: ReturnType<typeof createClickhouseClient>,
-) {
+async function execAssignmentQueryGroup({
+  workspaceId,
+  group,
+  clickhouseClient,
+}: {
+  workspaceId: string;
+  group: AssignmentQueryGroup;
+  clickhouseClient: ReturnType<typeof createClickhouseClient>;
+}) {
   const { queries, qb } = group;
-  for (const query of queries) {
-    if (Array.isArray(query)) {
+  for (const assignmentQuery of queries) {
+    if (Array.isArray(assignmentQuery)) {
       await Promise.all(
-        query.map((q) =>
-          command(
-            {
-              query: q,
-              query_params: qb.getQueries(),
-              clickhouse_settings: {
-                wait_end_of_query: 1,
-                max_execution_time:
-                  config().clickhouseComputePropertiesMaxExecutionTime,
-              },
-            },
-            { clickhouseClient },
-          ),
+        assignmentQuery.map(
+          ({ query, computedPropertyId, computedPropertyType }) =>
+            withSpan({ name: "exec-assignment-query" }, async (span) => {
+              span.setAttribute("workspaceId", workspaceId);
+              span.setAttribute("computedPropertyId", computedPropertyId);
+              span.setAttribute("computedPropertyType", computedPropertyType);
+              return command(
+                {
+                  query,
+                  query_params: qb.getQueries(),
+                  clickhouse_settings: {
+                    wait_end_of_query: 1,
+                    max_execution_time:
+                      config().clickhouseComputePropertiesMaxExecutionTime,
+                  },
+                },
+                { clickhouseClient },
+              );
+            }),
         ),
       );
     } else {
-      await command(
-        {
-          query,
-          query_params: qb.getQueries(),
-          clickhouse_settings: {
-            wait_end_of_query: 1,
-            max_execution_time:
-              config().clickhouseComputePropertiesMaxExecutionTime,
+      await withSpan({ name: "exec-assignment-query" }, async (span) => {
+        span.setAttribute("workspaceId", workspaceId);
+        span.setAttribute(
+          "computedPropertyId",
+          assignmentQuery.computedPropertyId,
+        );
+        span.setAttribute(
+          "computedPropertyType",
+          assignmentQuery.computedPropertyType,
+        );
+        return command(
+          {
+            query: assignmentQuery.query,
+            query_params: qb.getQueries(),
+            clickhouse_settings: {
+              wait_end_of_query: 1,
+              max_execution_time:
+                config().clickhouseComputePropertiesMaxExecutionTime,
+            },
           },
-        },
-        { clickhouseClient },
-      );
+          { clickhouseClient },
+        );
+      });
     }
   }
 }
@@ -3337,8 +3415,8 @@ export async function computeAssignments({
           }
         }
 
-        const queries: (string | string[])[] = [
-          resolvedQueries,
+        const queries: (string | string)[] = [
+          ...resolvedQueries,
           ...assignmentQueries,
         ];
 
@@ -3385,7 +3463,11 @@ export async function computeAssignments({
         }
 
         segmentQueries.push({
-          queries,
+          queries: queries.map((query) => ({
+            query,
+            computedPropertyId: segment.id,
+            computedPropertyType: "segment" as const,
+          })),
           qb,
         });
       });
@@ -3471,7 +3553,11 @@ export async function computeAssignments({
           return;
         }
         userPropertyQueries.push({
-          queries,
+          queries: queries.map((query) => ({
+            query,
+            computedPropertyId: userProperty.id,
+            computedPropertyType: "user_property" as const,
+          })),
           qb,
         });
       });
@@ -3479,7 +3565,11 @@ export async function computeAssignments({
 
     await Promise.all(
       [...segmentQueries, ...userPropertyQueries].map((group) =>
-        execAssignmentQueryGroup(group, clickhouseClient),
+        execAssignmentQueryGroup({
+          workspaceId,
+          group,
+          clickhouseClient,
+        }),
       ),
     );
 
@@ -4248,7 +4338,11 @@ function leafUserPropertyToPruned({
         return [];
       }
       const varName = qb.getVariableName();
-      const expression = `coalesce(any(nullIf(event_type == 'identify' and JSON_EXISTS(properties, ${path}), 0)), 0) as ${varName}`;
+      const conditions: string[] = ["event_type == 'identify'"];
+      if (!config().skipPruneJsonExists) {
+        conditions.push(`JSON_EXISTS(properties, ${path})`);
+      }
+      const expression = `coalesce(any(nullIf(${conditions.join(" and ")}, 0)), 0) as ${varName}`;
       return [
         {
           type: PrunedType.ComputedPropertyQuery,
@@ -4268,10 +4362,10 @@ function leafUserPropertyToPruned({
       if (!path) {
         return [];
       }
-      const conditions: string[] = [
-        "event_type == 'track'",
-        `JSON_EXISTS(properties, ${path})`,
-      ];
+      const conditions: string[] = ["event_type == 'track'"];
+      if (!config().skipPruneJsonExists) {
+        conditions.push(`JSON_EXISTS(properties, ${path})`);
+      }
       const prefixCondition = getPrefixCondition({
         column: "event",
         value: node.event,
@@ -4437,11 +4531,16 @@ function segmentNodeToPruned({
         case SegmentOperatorType.GreaterThanOrEqual:
         case SegmentOperatorType.LessThan: {
           const varName = qb.getVariableName();
+          const conditions: string[] = ["event_type == 'identify'"];
+          if (!config().skipPruneJsonExists) {
+            conditions.push(`JSON_EXISTS(properties, ${path})`);
+          }
+          const expression = `coalesce(any(nullIf(${conditions.join(" and ")}, 0)), 0) as ${varName}`;
           return [
             {
               type: PrunedType.ComputedPropertyQuery,
               computedPropertyId: segment.id,
-              expression: `coalesce(any(nullIf(event_type == 'identify' and JSON_EXISTS(properties, ${path}), 0)), 0) as ${varName}`,
+              expression,
               stateId,
               varName,
             },
@@ -4456,6 +4555,14 @@ function segmentNodeToPruned({
     }
     case SegmentNodeType.SubscriptionGroup: {
       const lastPerformedNode = subscriptionChangeToPerformed(node);
+      return segmentNodeToPruned({
+        segment,
+        node: lastPerformedNode,
+        qb,
+      });
+    }
+    case SegmentNodeType.SubscriptionGroupUnsubscribed: {
+      const lastPerformedNode = subscriptionGroupUnsubscribedToPerformed(node);
       return segmentNodeToPruned({
         segment,
         node: lastPerformedNode,
