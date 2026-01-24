@@ -1,25 +1,27 @@
 version: "3.9"
 x-clickhouse-credentials: &clickhouse-credentials
-  CLICKHOUSE_USER: dittofeed
-  CLICKHOUSE_PASSWORD: password
+  CLICKHOUSE_USER: ${CLICKHOUSE_USER:-dittofeed}
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
 x-backend-app-env: &backend-app-env
   <<: *clickhouse-credentials
   NODE_ENV: production
   DATABASE_HOST: ${DATABASE_HOST:-postgres}
   DATABASE_PORT: ${DATABASE_PORT:-5432}
   DATABASE_USER: ${DATABASE_USER:-postgres}
-  DATABASE_PASSWORD: ${DATABASE_PASSWORD:-password}
+  DATABASE_PASSWORD: ${DATABASE_PASSWORD}
   CLICKHOUSE_HOST: ${CLICKHOUSE_HOST:-http://clickhouse-server:8123}
   TEMPORAL_ADDRESS: ${TEMPORAL_ADDRESS:-temporal:7233}
   WORKSPACE_NAME: ${WORKSPACE_NAME:-Default}
   AUTH_MODE: ${AUTH_MODE:-multi-tenant}
-  SECRET_KEY: ${SECRET_KEY:-GEGL1RHjFVOxIO80Dp8+ODlZPOjm2IDBJB/UunHlf3c=}
+  SECRET_KEY: ${SECRET_KEY}
   DASHBOARD_API_BASE: ${DASHBOARD_API_BASE:-http://localhost:3000}
   ONBOARDING_URL: "/dashboard-l/onboarding"
   SIGNOUT_URL: "/dashboard/signout"
+  BOOTSTRAP: ${BOOTSTRAP:-false}
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
 services:
   ee:
-    image: scorise/scorise-ee:v0.23.0-ee.1
+    image: dittofeed/dittofeed-ee:${IMAGE_TAG:-latest}
     command: node --max-old-space-size=${MEM_LIMIT:-824} ./packages/ee/dist/scripts/startLite.js
     deploy:
       resources:
@@ -38,22 +40,17 @@ services:
     environment:
       <<: *backend-app-env
       DASHBOARD_API_BASE: "http://localhost:3000"
-      # comment out after initial setup
-      BOOTSTRAP: "true"
       PORT: "3000"
       HOST: "0.0.0.0"
-    # README: To add local env variables uncomment the following line and add a .env file in the root directory
-    # env_file:
-    #   - .env
     networks:
       - dittofeed-network-ee
   postgres:
     image: "postgres:15"
     restart: unless-stopped
     environment:
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
       POSTGRES_DB: dittofeed
-      POSTGRES_USER: postgres
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
     ports:
       - "5432:5432"
     logging:
@@ -77,13 +74,12 @@ services:
     environment:
       <<: *clickhouse-credentials
     volumes:
-      - ./packages/backend-lib/clickhouse_config.dev.xml:/etc/clickhouse-server/config.xml
       - clickhouse_lib:/var/lib/clickhouse
       - clickhouse_log:/var/log/clickhouse-server
     networks:
       - dittofeed-network-ee
   admin-cli:
-    image: scorise/scorise-admin-cli-licensed:v0.23.0-ee.1
+    image: dittofeed/dittofeed-admin-cli:${IMAGE_TAG:-latest}
     entrypoint: []
     profiles: ["admin-cli"]
     command: tail -f /dev/null
@@ -108,7 +104,7 @@ services:
       - DB=postgresql
       - DB_PORT=${DATABASE_PORT:-5432}
       - POSTGRES_USER=${DATABASE_USER:-postgres}
-      - POSTGRES_PWD=${DATABASE_PASSWORD:-password}
+      - POSTGRES_PWD=${DATABASE_PASSWORD}
       - POSTGRES_SEEDS=${DATABASE_HOST:-postgres}
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/prod.yaml
     # README: To add local env variables uncomment the following line and add a .env file in the root directory
@@ -127,8 +123,14 @@ services:
       - ./packages/backend-lib/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
 volumes:
   postgres:
+    external: true
+    name: automate_postgres
   clickhouse_lib:
+    external: true
+    name: automate_clickhouse_lib
   clickhouse_log:
+    external: true
+    name: automate_clickhouse_log
 
 networks:
   dittofeed-network-ee:

@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"],
       "env": {
-        "CONTEXT7_API_KEY": "ctx7sk-4eea345e-a0b6-41f4-b456-3455aeae76e8"
+        "CONTEXT7_API_KEY": "ctx7sk-bb467667-ff73-4255-934d-ce424744af61"
       }
     }
   }
