@@ -1,0 +1,2 @@
+#!/bin/bash
+docker compose -f docker-compose.lite.yaml -f docker-compose.keycloak.yaml up -d "$@"
