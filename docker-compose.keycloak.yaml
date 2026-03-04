@@ -1,0 +1,28 @@
+version: "3.9"
+# Override file for Keycloak multi-tenant auth.
+# Usage: docker compose -f docker-compose.lite.yaml -f docker-compose.keycloak.yaml up
+services:
+  lite:
+    image: ${IMAGE_REPOSITORY:-dittofeed/dittofeed-lite}:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: packages/auth-keycloak/Dockerfile
+    command: node --max-old-space-size=${LITE_MEM_LIMIT:-824} ./packages/auth-keycloak/dist/scripts/startLite.js --workspace-name=${WORKSPACE_NAME:-Default}
+    environment:
+      AUTH_MODE: "multi-tenant"
+      AUTH_PROVIDER: "keycloak"
+      OAUTH_START_URL: "/api/public/oidc/login"
+      SIGNOUT_URL: "/api/public/oidc/signout"
+      SIGNOUT_REDIRECT_URL: ${SIGNOUT_REDIRECT_URL:-http://localhost:3962}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_CALLBACK_URL: ${OIDC_CALLBACK_URL:-http://localhost:3962/api/public/oidc/callback}
+      OPEN_ID_CLIENT_ID: ${OPEN_ID_CLIENT_ID:-automate}
+      OPEN_ID_CLIENT_SECRET: ${OPEN_ID_CLIENT_SECRET}
+    networks:
+      - dittofeed-network-lite
+      - keycloak-net
+
+networks:
+  keycloak-net:
+    external: true
+    name: keycloak_keycloak-net

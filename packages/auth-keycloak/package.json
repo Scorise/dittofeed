@@ -1,0 +1,36 @@
+{
+  "name": "auth-keycloak",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "NODE_ENV=production tsc --build",
+    "dev": "NODE_ENV=development tsx scripts/startLite.ts",
+    "check": "tsc --build"
+  },
+  "exports": {
+    "./*": "./dist/*.js"
+  },
+  "dependencies": {
+    "@fastify/secure-session": "7.1.0",
+    "@sinclair/typebox": "0.34.37",
+    "@temporalio/worker": "1.14.1",
+    "admin-cli": "0.0.1",
+    "api": "0.0.3",
+    "backend-lib": "0.0.3",
+    "dashboard": "0.1.0",
+    "fastify-plugin": "^4.5.1",
+    "isomorphic-lib": "0.0.3",
+    "lite": "0.0.3",
+    "next": "13.5.6",
+    "openid-client": "^5.7.1",
+    "worker": "0.0.3",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.8",
+    "@types/yargs": "^17.0.24",
+    "tsx": "^4.20.3",
+    "typescript": "5.6.3"
+  },
+  "license": "MIT"
+}

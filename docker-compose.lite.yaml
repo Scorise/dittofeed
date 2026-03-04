@@ -16,7 +16,7 @@ x-backend-app-env: &backend-app-env
   AUTH_MODE: ${AUTH_MODE:-single-tenant}
   SECRET_KEY: ${SECRET_KEY}
   PASSWORD: ${PASSWORD}
-  DASHBOARD_API_BASE: ${DASHBOARD_API_BASE:-http://localhost:3000}
+  DASHBOARD_API_BASE: ${DASHBOARD_API_BASE:-http://localhost:3962}
   API_HOST: ${API_HOST:-0.0.0.0}
   BOOTSTRAP: ${BOOTSTRAP:-false}
   SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
@@ -32,7 +32,7 @@ services:
         limits:
           memory: ${LITE_CONTAINER_MEM_LIMIT:-1024}m
     ports:
-      - "3000:3000"
+      - "${PORT:-3962}:3000"
     depends_on:
       - postgres
       - temporal
@@ -115,7 +115,7 @@ services:
       - POSTGRES_USER=${DATABASE_USER:-postgres}
       - POSTGRES_DB=dittofeed
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5462}:5432"
     volumes:
       - postgres:/var/lib/postgresql/data
     networks:

@@ -14906,6 +14906,31 @@ __metadata:
   languageName: node
   linkType: hard
 
+"auth-keycloak@workspace:packages/auth-keycloak":
+  version: 0.0.0-use.local
+  resolution: "auth-keycloak@workspace:packages/auth-keycloak"
+  dependencies:
+    "@fastify/secure-session": "npm:7.1.0"
+    "@sinclair/typebox": "npm:0.34.37"
+    "@temporalio/worker": "npm:1.14.1"
+    "@types/node": "npm:20.14.8"
+    "@types/yargs": "npm:^17.0.24"
+    admin-cli: "npm:0.0.1"
+    api: "npm:0.0.3"
+    backend-lib: "npm:0.0.3"
+    dashboard: "npm:0.1.0"
+    fastify-plugin: "npm:^4.5.1"
+    isomorphic-lib: "npm:0.0.3"
+    lite: "npm:0.0.3"
+    next: "npm:13.5.6"
+    openid-client: "npm:^5.7.1"
+    tsx: "npm:^4.20.3"
+    typescript: "npm:5.6.3"
+    worker: "npm:0.0.3"
+    yargs: "npm:^17.7.2"
+  languageName: unknown
+  linkType: soft
+
 "autoprefixer@npm:^10.4.20":
   version: 10.4.20
   resolution: "autoprefixer@npm:10.4.20"
@@ -17382,41 +17407,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dittofeed@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "dittofeed@workspace:."
-  dependencies:
-    "@babel/core": "npm:^7.28.5"
-    "@babel/preset-env": "npm:^7.28.5"
-    "@types/babel__core": "npm:^7"
-    "@types/babel__preset-env": "npm:^7"
-    "@types/jest": "npm:^29.2.6"
-    "@types/node": "npm:20.14.8"
-    "@typescript-eslint/eslint-plugin": "npm:^5.60.0"
-    "@typescript-eslint/parser": "npm:^5.60.0"
-    babel-jest: "npm:^30.2.0"
-    eslint: "npm:^8.43.0"
-    eslint-config-airbnb: "npm:^19.0.4"
-    eslint-config-airbnb-typescript: "npm:^17.0.0"
-    eslint-config-prettier: "npm:^8.8.0"
-    eslint-plugin-filenames: "npm:^1.3.2"
-    eslint-plugin-import: "npm:^2.27.5"
-    eslint-plugin-jsx-a11y: "npm:^6.7.1"
-    eslint-plugin-react: "npm:^7.32.2"
-    eslint-plugin-react-hooks: "npm:^4.6.0"
-    eslint-plugin-simple-import-sort: "npm:^10.0.0"
-    jest: "npm:^29.4.0"
-    jest-environment-jsdom: "npm:^30.2.0"
-    jest-expect-message: "npm:^1.1.3"
-    jest-runner-groups: "npm:^2.2.0"
-    prettier: "npm:3.2.5"
-    prettier-eslint: "npm:^16.3.0"
-    ts-jest: "npm:^29.2.5"
-    ts-node: "npm:10.9.1"
-    typescript: "npm:5.6.3"
-  languageName: unknown
-  linkType: soft
-
 "dlv@npm:^1.1.0, dlv@npm:^1.1.3":
   version: 1.1.3
   resolution: "dlv@npm:1.1.3"
@@ -19599,6 +19589,13 @@ __metadata:
   version: 4.5.0
   resolution: "fastify-plugin@npm:4.5.0"
   checksum: 10/4a4385c5b945ebbf08f7b60500666ad5155acb5950ced29b847323c25c7f72427b076d967b15daf0040ee93a62ef0beab305b7f19b71439912be4acf71c8a3d0
+  languageName: node
+  linkType: hard
+
+"fastify-plugin@npm:^4.5.1":
+  version: 4.5.1
+  resolution: "fastify-plugin@npm:4.5.1"
+  checksum: 10/7c6d777ada0f01c8a1166a2a669cccfd6074c7764121f07cce997745f198227a271c7a317aaf0da273b329f24307f0eba3f093d872d29b839b33deb525bbafe2
   languageName: node
   linkType: hard
 
@@ -22728,6 +22725,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"jose@npm:^4.15.9":
+  version: 4.15.9
+  resolution: "jose@npm:4.15.9"
+  checksum: 10/256234b6f85cdc080b1331f2d475bd58c8ccf459cb20f70ac5e4200b271bce10002b1c2f8e5b96dd975d83065ae5a586d52cdf89d28471d56de5d297992f9905
+  languageName: node
+  linkType: hard
+
 "joycon@npm:^3.1.1":
   version: 3.1.1
   resolution: "joycon@npm:3.1.1"
@@ -23360,7 +23364,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lite@workspace:packages/lite":
+"lite@npm:0.0.3, lite@workspace:packages/lite":
   version: 0.0.0-use.local
   resolution: "lite@workspace:packages/lite"
   dependencies:
@@ -25933,6 +25937,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"object-hash@npm:^2.2.0":
+  version: 2.2.0
+  resolution: "object-hash@npm:2.2.0"
+  checksum: 10/dee06b6271bf5769ae5f1a7386fdd52c1f18aae9fcb0b8d4bb1232f2d743d06cb5b662be42378b60a1c11829f96f3f86834a16bbaa57a085763295fff8b93e27
+  languageName: node
+  linkType: hard
+
 "object-hash@npm:^3.0.0":
   version: 3.0.0
   resolution: "object-hash@npm:3.0.0"
@@ -26054,6 +26065,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"oidc-token-hash@npm:^5.0.3":
+  version: 5.2.0
+  resolution: "oidc-token-hash@npm:5.2.0"
+  checksum: 10/4eb991b454722d051ac79c98ab08c5ec9e40ae98835797690f1419dd396d680dbbdb17dfb700c4a1b6be472b795fb9b494c15c6af9b026d576f3c9482b43c03f
+  languageName: node
+  linkType: hard
+
 "on-exit-leak-free@npm:^2.1.0":
   version: 2.1.0
   resolution: "on-exit-leak-free@npm:2.1.0"
@@ -26131,6 +26149,18 @@ __metadata:
   version: 12.1.0
   resolution: "openapi-types@npm:12.1.0"
   checksum: 10/ec0a335e553abf87e5ce9bbbbf8ba8f8efdad90c9473a77b4ed2830801ccf92d8ec456afd1ad8cd0146c66f47e872865a24e112b40595ba6722d3f96c0116b39
+  languageName: node
+  linkType: hard
+
+"openid-client@npm:^5.7.1":
+  version: 5.7.1
+  resolution: "openid-client@npm:5.7.1"
+  dependencies:
+    jose: "npm:^4.15.9"
+    lru-cache: "npm:^6.0.0"
+    object-hash: "npm:^2.2.0"
+    oidc-token-hash: "npm:^5.0.3"
+  checksum: 10/188a875ab1824010bde85b6755f31401d4b0bcf6edffe5f149b1e67fc886c692658121c0c3cc04db84be33138c0e9e2e7d829e6997adf489f23a32ea7e745151
   languageName: node
   linkType: hard
 
@@ -29051,6 +29081,41 @@ __metadata:
   checksum: 10/1a21c91d98891e61b411bf3c494482c8b47a8adece11356569c28328d983b98089eec19ff77005b74ec536ddac6ea2b7679a72b80e6a04774fc18a4a1f37f939
   languageName: node
   linkType: hard
+
+"scorise@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "scorise@workspace:."
+  dependencies:
+    "@babel/core": "npm:^7.28.5"
+    "@babel/preset-env": "npm:^7.28.5"
+    "@types/babel__core": "npm:^7"
+    "@types/babel__preset-env": "npm:^7"
+    "@types/jest": "npm:^29.2.6"
+    "@types/node": "npm:20.14.8"
+    "@typescript-eslint/eslint-plugin": "npm:^5.60.0"
+    "@typescript-eslint/parser": "npm:^5.60.0"
+    babel-jest: "npm:^30.2.0"
+    eslint: "npm:^8.43.0"
+    eslint-config-airbnb: "npm:^19.0.4"
+    eslint-config-airbnb-typescript: "npm:^17.0.0"
+    eslint-config-prettier: "npm:^8.8.0"
+    eslint-plugin-filenames: "npm:^1.3.2"
+    eslint-plugin-import: "npm:^2.27.5"
+    eslint-plugin-jsx-a11y: "npm:^6.7.1"
+    eslint-plugin-react: "npm:^7.32.2"
+    eslint-plugin-react-hooks: "npm:^4.6.0"
+    eslint-plugin-simple-import-sort: "npm:^10.0.0"
+    jest: "npm:^29.4.0"
+    jest-environment-jsdom: "npm:^30.2.0"
+    jest-expect-message: "npm:^1.1.3"
+    jest-runner-groups: "npm:^2.2.0"
+    prettier: "npm:3.2.5"
+    prettier-eslint: "npm:^16.3.0"
+    ts-jest: "npm:^29.2.5"
+    ts-node: "npm:10.9.1"
+    typescript: "npm:5.6.3"
+  languageName: unknown
+  linkType: soft
 
 "scroll-into-view-if-needed@npm:^2.2.20":
   version: 2.2.31
