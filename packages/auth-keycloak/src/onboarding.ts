@@ -16,6 +16,7 @@ import {
   CreateWorkspaceErrorType,
   WorkspaceTypeAppEnum,
 } from "backend-lib/src/types";
+import { SCORISE_BRANDING } from "./branding";
 
 export interface OnboardResult {
   workspaceId: string;
@@ -60,6 +61,7 @@ export async function onboardUserToOwnWorkspace({
   let result = await bootstrapPostgres({
     workspaceName,
     workspaceType: WorkspaceTypeAppEnum.Root,
+    features: SCORISE_BRANDING,
   });
 
   // If name already taken, retry with email to make it unique
@@ -70,6 +72,7 @@ export async function onboardUserToOwnWorkspace({
     result = await bootstrapPostgres({
       workspaceName: `${displayName} (${email})`,
       workspaceType: WorkspaceTypeAppEnum.Root,
+      features: SCORISE_BRANDING,
     });
   }
 
