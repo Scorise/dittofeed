@@ -1,9 +1,9 @@
 import logger from "backend-lib/src/logger";
-import { onboardUser } from "backend-lib/src/onboarding";
 import { OpenIdProfile } from "backend-lib/src/types";
 import { FastifyInstance } from "fastify";
 
 import keycloakConfig from "../config";
+import { onboardUserToOwnWorkspace } from "../onboarding";
 
 interface OidcPendingSession {
   codeVerifier: string;
@@ -15,6 +15,7 @@ interface OidcPendingSession {
 // Only profile is stored. Tokens are omitted to keep the cookie small.
 export interface OidcSession {
   profile: OpenIdProfile;
+  workspaceId?: string;
 }
 
 export default async function callbackRoute(fastify: FastifyInstance) {
@@ -58,32 +59,42 @@ export default async function callbackRoute(fastify: FastifyInstance) {
       nickname: (claims.preferred_username as string) ?? claims.name,
     };
 
-    const oidcSession: OidcSession = {
-      profile,
-    };
-
-    request.session.set("oidc", oidcSession);
     request.session.set("oidc-pending", null);
 
-    // Auto-provision workspace membership for Keycloak users.
-    // Uses onboardUser from backend-lib which upserts WorkspaceMember +
-    // WorkspaceMemberRole (Admin) — idempotent, safe to call on every login.
-    const { defaultWorkspaceName } = config;
-    if (profile.email && defaultWorkspaceName) {
-      const onboardResult = await onboardUser({
+    // Auto-provision personal workspace for Keycloak users.
+    // First login: creates a new workspace with full bootstrap (user properties,
+    // write keys, providers, subscription groups) and assigns user as Admin.
+    // Subsequent logins: returns the existing workspace.
+    let workspaceId: string | undefined;
+    if (profile.email) {
+      const onboardResult = await onboardUserToOwnWorkspace({
         email: profile.email,
-        workspaceName: defaultWorkspaceName,
+        name: profile.name,
       });
       if (onboardResult.isErr()) {
         logger().warn(
           { err: onboardResult.error, email: profile.email },
           "Auto-onboarding failed",
         );
+      } else {
+        workspaceId = onboardResult.value.workspaceId;
+        if (onboardResult.value.isNew) {
+          logger().info(
+            { email: profile.email, workspaceId },
+            "Created new personal workspace",
+          );
+        }
       }
     }
 
+    const oidcSession: OidcSession = {
+      profile,
+      workspaceId,
+    };
+    request.session.set("oidc", oidcSession);
+
     logger().info(
-      { email: profile.email, sub: profile.sub },
+      { email: profile.email, sub: profile.sub, workspaceId },
       "OIDC login successful",
     );
 
