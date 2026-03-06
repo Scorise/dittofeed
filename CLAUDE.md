@@ -1,1 +1,3 @@
 See the contents of the [AGENTS.md](AGENTS.md) file for instructions on how to work within this project.
+
+**CRITICAL**: This project is built on top of upstream Dittofeed. Never modify upstream core packages (api, backend-lib, dashboard, isomorphic-lib, lite, worker, admin-cli). All custom logic must go into our own packages (e.g., `packages/auth-keycloak/`). See AGENTS.md for the full upstream policy.

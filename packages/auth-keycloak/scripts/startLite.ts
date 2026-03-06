@@ -88,6 +88,21 @@ async function startLite() {
   await nextApp.prepare();
   const nextHandler = nextApp.getRequestHandler();
 
+  // Paths that should be accessible without authentication
+  const PUBLIC_PATH_PREFIXES = [
+    "/api/",
+    "/_next/",
+    "/dashboard/_next/",
+    "/dashboard/branding-assets/",
+    "/favicon",
+  ];
+
+  function isPublicPath(url: string): boolean {
+    return PUBLIC_PATH_PREFIXES.some((prefix) => url.startsWith(prefix));
+  }
+
+  const OIDC_LOGIN_PATH = "/api/public/oidc/login";
+
   app.route({
     // Exclude 'OPTIONS to avoid conflict with cors plugin'
     method: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
@@ -96,10 +111,14 @@ async function startLite() {
       // Bridge OIDC session profile to Next.js SSR context
       // This is read by packages/dashboard/src/lib/requestContext.ts:30
       const oidcSession = req.session?.get("oidc") as OidcSession | null;
+
       if (oidcSession?.profile) {
         // eslint-disable-next-line @typescript-eslint/consistent-type-assertions, no-param-reassign
         (req.raw as { profile?: OpenIdProfile }).profile =
           oidcSession.profile;
+      } else if (!isPublicPath(req.url)) {
+        // Unauthenticated user on a dashboard page — redirect to OIDC login
+        return reply.redirect(OIDC_LOGIN_PATH);
       }
 
       // eslint-disable-next-line no-param-reassign

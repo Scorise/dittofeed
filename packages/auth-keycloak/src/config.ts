@@ -7,6 +7,7 @@ export interface KeycloakConfig {
   callbackUrl: string;
   scopes: string;
   signoutRedirectUrl: string;
+  defaultWorkspaceName: string;
 }
 
 let CONFIG: KeycloakConfig | null = null;
@@ -45,6 +46,7 @@ export default function keycloakConfig(): KeycloakConfig {
       callbackUrl,
       scopes: process.env.OIDC_SCOPES ?? "openid email profile",
       signoutRedirectUrl: signoutRedirectUrl ?? "/",
+      defaultWorkspaceName: process.env.WORKSPACE_NAME ?? "Default",
     };
   }
   return CONFIG;

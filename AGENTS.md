@@ -36,7 +36,32 @@ LOG_LEVEL=debug yarn jest packages/backend-lib/src/resources.test.ts
 yarn workspace backend-lib check
 ```
 
+## Upstream Policy — DO NOT modify core Dittofeed packages
+
+This project is a fork/overlay on top of the upstream **Dittofeed** codebase.
+Core packages are pulled from upstream and will be updated in the future.
+**Never modify files in upstream packages** — changes will be lost on the next update and may cause merge conflicts.
+
+### Upstream (read-only) packages — do NOT edit:
+
+- `packages/api/`
+- `packages/backend-lib/`
+- `packages/dashboard/`
+- `packages/isomorphic-lib/`
+- `packages/lite/`
+- `packages/worker/`
+- `packages/admin-cli/`
+
+### Custom packages — safe to edit:
+
+- `packages/auth-keycloak/` — our Keycloak OIDC multi-tenant auth module
+- `nginx/` — our nginx configuration
+- `docker-compose.keycloak.yaml` — Keycloak-specific compose overlay
+
+When a feature requires changes to upstream behavior, implement it as a **wrapper, hook, or middleware** inside our custom packages (e.g., `auth-keycloak`). If upstream modification is truly unavoidable, discuss with the user first.
+
 ## Key Files and Directories
 
-- packages/backend-lib/src/config.ts: Where the majority of our applications' environment variables and configuration values are resolved.
+- packages/backend-lib/src/config.ts: Where the majority of our applications' environment variables and configuration values are resolved. (upstream — read-only)
+- packages/auth-keycloak/: Our custom Keycloak OIDC authentication module.
 - .tmp/: this directory can be used output disposable files for debugging purposes
